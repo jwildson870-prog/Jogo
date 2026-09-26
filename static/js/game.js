@@ -145,6 +145,89 @@ const guide = makeNpc("Marcos — Guia", 7, 3, 0xf59e0b, "💬"); guide.desc = "
 const shopkeeper = makeNpc("Ana — Comerciante", -43, -37, 0x22c55e, "🛒"); shopkeeper.desc = "Talvez ela tenha alguma coisa útil.";
 const worker = makeNpc("Carlos — Trabalhador", 43, 37, 0x8b5cf6, "💼"); worker.desc = "Está procurando alguém para ajudar.";
 
+// Cidade viva — NPCs circulando e trânsito simples.
+const traffic = [];
+const npcWalkers = [];
+
+function createTrafficCar(x, z, axis = "x", dir = 1, color = 0xd64b3f) {
+  const car = new THREE.Group();
+  car.position.set(x, .32, z);
+  car.userData.visualDetail = true;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.1, .7, 1.55), new THREE.MeshStandardMaterial({color, roughness:.55, metalness:.15}));
+  body.castShadow = true; car.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.55, .65, 1.35), new THREE.MeshStandardMaterial({color:0x263746, roughness:.25, metalness:.1, transparent:true, opacity:.92}));
+  cabin.position.y=.55; cabin.position.x=-.15; cabin.castShadow=true; car.add(cabin);
+  for (const wx of [-1.05,1.05]) for (const wz of [-.82,.82]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.28,.28,.18,12), new THREE.MeshStandardMaterial({color:0x15171a,roughness:1}));
+    wheel.rotation.z=Math.PI/2; wheel.position.set(wx,0,wz); car.add(wheel);
+  }
+  const head1 = new THREE.Mesh(new THREE.BoxGeometry(.12,.14,.38), new THREE.MeshBasicMaterial({color:0xfff1b0}));
+  const head2=head1.clone(); head1.position.set(1.57,.32,-.48); head2.position.set(1.57,.32,.48); car.add(head1,head2);
+  car.rotation.y = axis === "x" ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI/2 : -Math.PI/2);
+  scene.add(car);
+  traffic.push({group:car,axis,dir,speed:5+Math.random()*2.5,startX:x,startZ:z,range:108});
+}
+
+// Faixas de trânsito principais da cidade.
+for (let i=0;i<3;i++) {
+  createTrafficCar(-95-i*28, -5, "x", 1, [0xd64b3f,0x2f80ed,0xf0b429][i]);
+  createTrafficCar(95-i*30, 5, "x", -1, [0x22a06b,0x9b59b6,0xe67e22][i]);
+  createTrafficCar(5, -95-i*28, "z", 1, [0x34495e,0xe74c3c,0xf1c40f][i]);
+  createTrafficCar(-5, 95-i*30, "z", -1, [0x16a085,0x8e44ad,0xc0392b][i]);
+}
+
+function setupWalker(npc, radius = 13) {
+  npcWalkers.push({
+    npc,
+    origin: npc.group.position.clone(),
+    target: npc.group.position.clone(),
+    radius,
+    speed: .7 + Math.random()*.65,
+    wait: Math.random()*2,
+    phase: Math.random()*Math.PI*2
+  });
+}
+setupWalker(guide, 16);
+setupWalker(shopkeeper, 12);
+setupWalker(worker, 15);
+
+function chooseWalkerTarget(w) {
+  const a=Math.random()*Math.PI*2, r=4+Math.random()*w.radius;
+  w.target.set(w.origin.x+Math.cos(a)*r,0,w.origin.z+Math.sin(a)*r);
+  // Evita colocar NPC exatamente no meio de uma rua principal.
+  w.target.x=Math.round(w.target.x/5)*5;
+  w.target.z=Math.round(w.target.z/5)*5;
+}
+for(const w of npcWalkers) chooseWalkerTarget(w);
+
+function updateLivingCity(dt, time) {
+  // NPCs caminham, param e mudam de destino.
+  for(const w of npcWalkers){
+    if(w.wait>0){ w.wait-=dt; continue; }
+    const g=w.npc.group, dx=w.target.x-g.position.x, dz=w.target.z-g.position.z;
+    const d=Math.hypot(dx,dz);
+    if(d<.6){ w.wait=1+Math.random()*2.5; chooseWalkerTarget(w); continue; }
+    const step=Math.min(d,w.speed*dt);
+    g.position.x += dx/d*step; g.position.z += dz/d*step;
+    g.rotation.y=Math.atan2(dx,dz);
+    const walk=Math.sin(time*7+w.phase)*.08;
+    g.children[0].rotation.x=walk;
+  }
+  // Veículos percorrem as avenidas e reaparecem do outro lado.
+  for(const v of traffic){
+    const d=v.speed*dt*v.dir;
+    if(v.axis==='x'){
+      v.group.position.x += d;
+      if(v.group.position.x>112) v.group.position.x=-112;
+      if(v.group.position.x<-112) v.group.position.x=112;
+    } else {
+      v.group.position.z += d;
+      if(v.group.position.z>112) v.group.position.z=-112;
+      if(v.group.position.z<-112) v.group.position.z=112;
+    }
+  }
+}
+
 // Estado do jogo.
 const defaultState = { nome: "Jogador", vida: 100, dinheiro: 500, nivel: 1, xp: 0, xp_proximo: 100, energia: 100, inventario: [] };
 let state = { ...defaultState };
@@ -336,6 +419,7 @@ function animate(now) {
   const t = clock.getElapsedTime(), swing = Math.sin(t * (running ? 11 : 8)) * .65 * moveAmount, bob = Math.abs(Math.sin(t * (running ? 11 : 8))) * .045 * moveAmount;
   leftLeg.rotation.x = swing; rightLeg.rotation.x = -swing; leftArm.rotation.x = -swing * .75; rightArm.rotation.x = swing * .75;
   torso.position.y = 1.75 + bob; neck.position.y = 2.38 + bob; head.position.y = 2.85 + bob; hair.position.y = 3.02 + bob;
+  updateLivingCity(dt, t);
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
   water.rotation.z += dt * .12;
   water.material.roughness = .16 + Math.sin(t*1.4)*.03;
