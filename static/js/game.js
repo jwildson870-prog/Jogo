@@ -201,13 +201,29 @@ function animate(now) {
   if (running && isMoving && state.energia > 0) state.energia = Math.max(0, state.energia - dt * 5);
   else if (!isMoving) state.energia = Math.min(100, state.energia + dt * 2.5);
   moveAmount = THREE.MathUtils.lerp(moveAmount, input, Math.min(1, dt * 12));
-  const forward = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
-  const right = new THREE.Vector3(Math.cos(cameraYaw), 0, -Math.sin(cameraYaw));
+  // Movimento 360° relativo à câmera:
+  // joystick para cima = frente, baixo = trás, esquerda/direita = lateral.
+  const cameraForward = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
+  const cameraRight = new THREE.Vector3(Math.cos(cameraYaw), 0, -Math.sin(cameraYaw));
+  const moveDirection = new THREE.Vector3();
+
   if (isMoving) {
-    player.position.addScaledVector(right, joystick.x * speed); player.position.addScaledVector(forward, joystick.y * speed);
-    const desired = Math.atan2(joystick.x * Math.cos(cameraYaw) + joystick.y * Math.sin(cameraYaw), joystick.x * -Math.sin(cameraYaw) + joystick.y * Math.cos(cameraYaw)) + Math.PI;
-    let diff = THREE.MathUtils.euclideanModulo(desired - player.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
-    player.rotation.y += diff * Math.min(1, dt * 10);
+    // No touchscreen, Y negativo significa "cima".
+    // Por isso invertimos o eixo Y para transformar cima em avanço.
+    moveDirection
+      .addScaledVector(cameraRight, joystick.x)
+      .addScaledVector(cameraForward, -joystick.y)
+      .normalize();
+
+    player.position.addScaledVector(moveDirection, speed);
+
+    // O personagem acompanha exatamente a direção escolhida no joystick.
+    const desired = Math.atan2(moveDirection.x, moveDirection.z);
+    let diff = THREE.MathUtils.euclideanModulo(
+      desired - player.rotation.y + Math.PI,
+      Math.PI * 2
+    ) - Math.PI;
+    player.rotation.y += diff * Math.min(1, dt * 12);
   }
   player.position.x = THREE.MathUtils.clamp(player.position.x, -105, 105); player.position.z = THREE.MathUtils.clamp(player.position.z, -105, 105);
   const t = clock.getElapsedTime(), swing = Math.sin(t * (running ? 11 : 8)) * .65 * moveAmount, bob = Math.abs(Math.sin(t * (running ? 11 : 8))) * .045 * moveAmount;
