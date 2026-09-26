@@ -10,11 +10,14 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
 document.getElementById("game").appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x41604b, 2.2));
-const sun = new THREE.DirectionalLight(0xfff4d6, 2.7);
-sun.position.set(35, 60, 25); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+scene.add(new THREE.HemisphereLight(0xdcefff, 0x35563b, 2.0));
+const sun = new THREE.DirectionalLight(0xfff1d0, 3.1);
+sun.position.set(35, 65, 25); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left=-90; sun.shadow.camera.right=90; sun.shadow.camera.top=90; sun.shadow.camera.bottom=-90;
 scene.add(sun);
 
 const ground = new THREE.Mesh(
@@ -27,20 +30,38 @@ function box(x, y, z, w, h, d, color, extra = {}) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, ...extra }));
   m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; scene.add(m); return m;
 }
-function road(x, z, w, d) { box(x, .025, z, w, .05, d, 0x30343a); }
+function road(x, z, w, d) { box(x, .025, z, w, .05, d, 0x30343a, {roughness:.92}); }
+function sidewalk(x,z,w,d){ box(x,.075,z,w,.12,d,0x9b9fa0,{roughness:.9}); }
+function stripe(x,z,w,d){ box(x,.065,z,w,.025,d,0xf2e7bd,{roughness:.8}); }
+function lamp(x,z){
+  box(x,2.3,z,.12,4.6,.12,0x252b31,{metalness:.65,roughness:.35});
+  const arm=box(x+.42,4.45,z,.9,.09,.09,0x252b31,{metalness:.7,roughness:.3});
+  const glow=new THREE.Mesh(new THREE.SphereGeometry(.16,10,8),new THREE.MeshStandardMaterial({color:0xffe6a3,emissive:0xffb52e,emissiveIntensity:2.2}));
+  glow.position.set(x+.83,4.34,z); scene.add(glow);
+  const light=new THREE.PointLight(0xffc96b,.75,9,2); light.position.copy(glow.position); scene.add(light);
+}
 function distance(a, b) { return Math.hypot(a.x - b.x, a.z - b.z); }
 
 for (let i = -80; i <= 80; i += 40) { road(0, i, 220, 10); road(i, 0, 10, 220); }
+// Calçadas, faixas e postes deixam a cidade mais legível e realista.
+for(let i=-80;i<=80;i+=40){ sidewalk(-7.2,i,3.8,220); sidewalk(7.2,i,3.8,220); sidewalk(i,-7.2,220,3.8); sidewalk(i,7.2,220,3.8); }
+for(let i=-80;i<=80;i+=40){ for(let p=-80;p<80;p+=8){ stripe(-.55,p,1.0,4.2); stripe(.55,p,1.0,4.2); stripe(p,-.55,4.2,1.0); stripe(p,.55,4.2,1.0); } }
+for(let x=-90;x<=90;x+=20){ lamp(x, -6.1); lamp(x, 6.1); }
+for(let z=-90;z<=90;z+=20){ lamp(-6.1,z); lamp(6.1,z); }
 for (let x = -80; x <= 80; x += 40) for (let z = -80; z <= 80; z += 40) {
   if (Math.abs(x) < 1 || Math.abs(z) < 1) continue;
   const h = 8 + Math.random() * 13;
   const colors = [0x7c8790, 0x9a8774, 0x667887, 0x8c6f62, 0x707c68];
   box(x, h / 2, z, 20, h, 20, colors[Math.floor(Math.random() * colors.length)]);
-  box(x, h + .8, z, 16, .8, 16, 0x555b60);
+  box(x, h + .8, z, 16, .8, 16, 0x555b60, {roughness:.7,metalness:.12});
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(10.8,10.8,1.15,4), new THREE.MeshStandardMaterial({color:0x3e444a,roughness:.82}));
+  roof.position.set(x,h+1.55,z); roof.rotation.y=Math.PI/4; roof.castShadow=true; scene.add(roof);
   for (let wy = 2; wy < h - 1; wy += 3) {
     for (let wx = -6; wx <= 6; wx += 4) {
       const window = box(x + wx, wy, z - 10.08, 1.3, 1.1, .08, 0x9cc5d6, { emissive: 0x183642, emissiveIntensity: .3 });
       window.castShadow = false;
+      const side = box(x + 10.08, wy, z + wx, .08, 1.1, 1.3, 0x9cc5d6, {emissive:0x183642, emissiveIntensity:.3});
+      side.castShadow = false;
     }
   }
 }
@@ -51,8 +72,11 @@ for (let i = 0; i < 48; i++) {
   const z = Math.round((Math.random() * 200 - 100) / 10) * 10 + 5;
   if (Math.abs(x % 40) < 12 || Math.abs(z % 40) < 12) continue;
   box(x, 1.2, z, 1.5, 2.4, 1.5, 0x70452b);
-  const crown = new THREE.Mesh(new THREE.SphereGeometry(3.2, 12, 10), new THREE.MeshStandardMaterial({ color: 0x1e7a38 }));
-  crown.position.set(x, 4, z); crown.castShadow = true; scene.add(crown);
+  const crownMat = new THREE.MeshStandardMaterial({ color: 0x1d7437, roughness:.92 });
+  for(const part of [[0,4,0,3.2],[1.4,4.4,.2,2.2],[-1.3,4.5,.1,2.3]]){
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(part[3],12,10), crownMat);
+    crown.position.set(x+part[0],part[1],z+part[2]); crown.castShadow = true; scene.add(crown);
+  }
 }
 
 // Praça central.
@@ -62,6 +86,15 @@ const fountain = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 5, .55, 32), new
 fountain.position.y = .3; scene.add(fountain);
 const water = new THREE.Mesh(new THREE.CylinderGeometry(3.9, 3.9, .08, 32), new THREE.MeshStandardMaterial({ color: 0x36a9d6, metalness: .1, roughness: .2 }));
 water.position.y = .61; scene.add(water);
+
+// Céu com sol e nuvens decorativas para dar profundidade ao horizonte.
+const skySun = new THREE.Mesh(new THREE.SphereGeometry(5,24,16), new THREE.MeshBasicMaterial({color:0xffe6a1}));
+skySun.position.set(-70,75,-100); scene.add(skySun);
+for(let i=0;i<12;i++){
+  const cloud=new THREE.Group();
+  for(let j=0;j<3;j++){ const puff=new THREE.Mesh(new THREE.SphereGeometry(3+Math.random()*1.8,12,8),new THREE.MeshStandardMaterial({color:0xffffff,transparent:true,opacity:.78,roughness:1})); puff.position.set(j*4,Math.random()*1.2,0); cloud.add(puff); }
+  cloud.position.set(-95+Math.random()*190,42+Math.random()*25,-100+Math.random()*120); scene.add(cloud);
+}
 
 // Personagem.
 const player = new THREE.Group(); player.position.set(0, 0, 10); scene.add(player);
@@ -230,6 +263,8 @@ function animate(now) {
   leftLeg.rotation.x = swing; rightLeg.rotation.x = -swing; leftArm.rotation.x = -swing * .75; rightArm.rotation.x = swing * .75;
   torso.position.y = 1.75 + bob; neck.position.y = 2.38 + bob; head.position.y = 2.85 + bob; hair.position.y = 3.02 + bob;
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
+  water.rotation.z += dt * .12;
+  water.material.roughness = .16 + Math.sin(t*1.4)*.03;
   const target = new THREE.Vector3(player.position.x, player.position.y + 1.65, player.position.z);
   const offset = new THREE.Vector3(-Math.sin(cameraYaw) * 9, 5.2, -Math.cos(cameraYaw) * 9);
   camera.position.lerp(target.clone().add(offset), Math.min(1, dt * 7)); camera.lookAt(target);
