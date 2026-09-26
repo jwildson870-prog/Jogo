@@ -1,14 +1,23 @@
 import * as THREE from "three";
 
+const performanceUI = { frames: 0, last: performance.now(), fps: 60, accumulator: 0, sample: 0, adaptiveTimer: 0, lodTimer: 0, interactionTimer: 0, hudTimer: 0 };
+let userQuality = localStorage.getItem("mundo-real-quality") || "auto";
+let quality = localStorage.getItem("mundo-real-quality") || "auto";
+const QUALITY = {
+  low:    { pixel: 0.85, shadows: false, shadowMap: 512, detail: 38, fog: 115 },
+  medium: { pixel: 1.05, shadows: true,  shadowMap: 1024, detail: 58, fog: 155 },
+  high:   { pixel: Math.min(devicePixelRatio, 1.5), shadows: true, shadowMap: 1536, detail: 82, fog: 190 }
+};
+let activeQuality = quality === "auto" ? (innerWidth < 700 ? "medium" : "high") : quality;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x86b9ce);
-scene.fog = new THREE.Fog(0x86b9ce, 55, 190);
+scene.fog = new THREE.Fog(0x86b9ce, 45, QUALITY[activeQuality].fog);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, .1, 500);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.setPixelRatio(QUALITY[activeQuality].pixel);
 renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = QUALITY[activeQuality].shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -17,7 +26,7 @@ document.getElementById("game").appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xdcefff, 0x35563b, 2.0));
 const sun = new THREE.DirectionalLight(0xfff1d0, 3.1);
-sun.position.set(35, 65, 25); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left=-90; sun.shadow.camera.right=90; sun.shadow.camera.top=90; sun.shadow.camera.bottom=-90;
+sun.position.set(35, 65, 25); sun.castShadow = QUALITY[activeQuality].shadows; sun.shadow.mapSize.set(QUALITY[activeQuality].shadowMap, QUALITY[activeQuality].shadowMap); sun.shadow.camera.left=-90; sun.shadow.camera.right=90; sun.shadow.camera.top=90; sun.shadow.camera.bottom=-90;
 scene.add(sun);
 
 const ground = new THREE.Mesh(
@@ -28,7 +37,7 @@ ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground)
 
 function box(x, y, z, w, h, d, color, extra = {}) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, ...extra }));
-  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; scene.add(m); return m;
+  m.position.set(x, y, z); m.castShadow = QUALITY[activeQuality].shadows; m.receiveShadow = true; scene.add(m); return m;
 }
 function road(x, z, w, d) { box(x, .025, z, w, .05, d, 0x30343a, {roughness:.92}); }
 function sidewalk(x,z,w,d){ box(x,.075,z,w,.12,d,0x9b9fa0,{roughness:.9}); }
@@ -59,9 +68,9 @@ for (let x = -80; x <= 80; x += 40) for (let z = -80; z <= 80; z += 40) {
   for (let wy = 2; wy < h - 1; wy += 3) {
     for (let wx = -6; wx <= 6; wx += 4) {
       const window = box(x + wx, wy, z - 10.08, 1.3, 1.1, .08, 0x9cc5d6, { emissive: 0x183642, emissiveIntensity: .3 });
-      window.castShadow = false;
+      window.castShadow = false; window.userData.visualDetail = true;
       const side = box(x + 10.08, wy, z + wx, .08, 1.1, 1.3, 0x9cc5d6, {emissive:0x183642, emissiveIntensity:.3});
-      side.castShadow = false;
+      side.castShadow = false; side.userData.visualDetail = true;
     }
   }
 }
@@ -75,7 +84,7 @@ for (let i = 0; i < 48; i++) {
   const crownMat = new THREE.MeshStandardMaterial({ color: 0x1d7437, roughness:.92 });
   for(const part of [[0,4,0,3.2],[1.4,4.4,.2,2.2],[-1.3,4.5,.1,2.3]]){
     const crown = new THREE.Mesh(new THREE.SphereGeometry(part[3],12,10), crownMat);
-    crown.position.set(x+part[0],part[1],z+part[2]); crown.castShadow = true; scene.add(crown);
+    crown.position.set(x+part[0],part[1],z+part[2]); crown.castShadow = QUALITY[activeQuality].shadows; crown.userData.vegetation = true; crown.userData.visualDetail = true; scene.add(crown);
   }
 }
 
@@ -188,7 +197,23 @@ function interactWith(target) {
   }
 }
 
-loadLocal(); updateHud();
+loadLocal(); updateHud(); applyQuality(activeQuality); updateGraphicsHUD();
+const qualitySelect = document.getElementById("quality-select");
+if (qualitySelect) {
+  qualitySelect.value = userQuality;
+  qualitySelect.addEventListener("change", () => {
+    userQuality = qualitySelect.value;
+    localStorage.setItem("mundo-real-quality", userQuality);
+    if (userQuality === "auto") {
+      applyQuality(innerWidth < 700 ? "medium" : "high", true);
+    } else applyQuality(userQuality, true);
+  });
+}
+const settingsBtn = document.getElementById("graphics-btn");
+const graphicsPanel = document.getElementById("graphics-panel");
+const closeGraphics = document.getElementById("close-graphics");
+if (settingsBtn && graphicsPanel) settingsBtn.addEventListener("click", () => graphicsPanel.classList.remove("hidden"));
+if (closeGraphics && graphicsPanel) closeGraphics.addEventListener("click", () => graphicsPanel.classList.add("hidden"));
 
 // Joystick e corrida.
 let joystick = { x: 0, y: 0 }, running = false, cameraYaw = 0, moveAmount = 0;
@@ -222,6 +247,55 @@ function updateInteraction() {
     n.label.style.display = visible ? "block" : "none";
     n.label.style.left = `${(p.x * .5 + .5) * innerWidth}px`; n.label.style.top = `${(-p.y * .5 + .5) * innerHeight}px`;
   }
+}
+
+
+function applyQuality(level, announce = false) {
+  if (!QUALITY[level]) return;
+  activeQuality = level;
+  const q = QUALITY[level];
+  renderer.setPixelRatio(q.pixel);
+  renderer.shadowMap.enabled = q.shadows;
+  sun.castShadow = q.shadows;
+  sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+  scene.fog.far = q.fog;
+  scene.fog.near = Math.max(35, q.fog * .28);
+  scene.traverse(obj => {
+    if (obj.isMesh && obj.userData.vegetation) obj.castShadow = q.shadows;
+  });
+  const el = document.getElementById("quality-value");
+  if (el) el.textContent = userQuality === "auto" ? `AUTO • ${level.toUpperCase()}` : level.toUpperCase();
+  if (announce) toast(`🎨 Qualidade ${level.toUpperCase()}`);
+}
+function updateAdaptiveQuality(dt) {
+  performanceUI.frames++;
+  performanceUI.accumulator += dt;
+  performanceUI.adaptiveTimer += dt;
+  if (performanceUI.accumulator >= .5) {
+    performanceUI.fps = Math.round(performanceUI.frames / performanceUI.accumulator);
+    performanceUI.frames = 0; performanceUI.accumulator = 0;
+    const fpsEl = document.getElementById("fps-value");
+    if (fpsEl) fpsEl.textContent = performanceUI.fps;
+    const bar = document.getElementById("fps-bar");
+    if (bar) bar.style.width = `${Math.min(100, performanceUI.fps / 60 * 100)}%`;
+  }
+  if (userQuality !== "auto" || performanceUI.adaptiveTimer < 2.5) return;
+  performanceUI.adaptiveTimer = 0;
+  const target = performanceUI.fps < 27 ? "low" : performanceUI.fps < 42 ? "medium" : "high";
+  if (target !== activeQuality) applyQuality(target);
+}
+function updateLOD() {
+  const maxDetail = QUALITY[activeQuality].detail;
+  scene.traverse(obj => {
+    if (!obj.userData.visualDetail) return;
+    const p = obj.getWorldPosition(new THREE.Vector3());
+    const d = distance(player.position, p);
+    obj.visible = d < maxDetail;
+  });
+}
+function updateGraphicsHUD() {
+  const el = document.getElementById("quality-value");
+  if (el) el.textContent = userQuality === "auto" ? `AUTO • ${activeQuality.toUpperCase()}` : userQuality.toUpperCase();
 }
 
 let last = performance.now();
@@ -265,18 +339,21 @@ function animate(now) {
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
   water.rotation.z += dt * .12;
   water.material.roughness = .16 + Math.sin(t*1.4)*.03;
+  const daylight = .92 + Math.sin(t * .018) * .08; sun.intensity = 3.1 * daylight;
   const target = new THREE.Vector3(player.position.x, player.position.y + 1.65, player.position.z);
   const offset = new THREE.Vector3(-Math.sin(cameraYaw) * 9, 5.2, -Math.cos(cameraYaw) * 9);
   camera.position.lerp(target.clone().add(offset), Math.min(1, dt * 7)); camera.lookAt(target);
-  updateInteraction();
-  updateHud();
+  performanceUI.interactionTimer += dt;
+  performanceUI.hudTimer += dt;
+  if (performanceUI.interactionTimer > .12) { performanceUI.interactionTimer = 0; updateInteraction(); }
+  if (performanceUI.hudTimer > .18) { performanceUI.hudTimer = 0; updateHud(); }
+  updateAdaptiveQuality(dt);
+  performanceUI.lodTimer += dt;
+  if (performanceUI.lodTimer > .6) { performanceUI.lodTimer = 0; updateLOD(); }
   renderer.render(scene, camera);
 }
 
 camera.position.set(0, 7, 19); animate(performance.now());
-addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(QUALITY[activeQuality].pixel); });
 
-// Sincronização simples opcional com o Flask, mantendo o jogo funcional offline no navegador.
-setInterval(() => {
-  fetch("/api/player", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
-}, 10000);
+

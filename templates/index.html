@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#081018">
-  <title>Mundo Real 3D — V3</title>
+  <title>Mundo Real 3D — V4</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -51,6 +51,16 @@
   <div id="actions">
     <button id="run" aria-label="Correr">🏃</button>
     <button id="interact" aria-label="Interagir">✋</button>
+  </div>
+
+  <div id="performance" class="glass"><span class="fps-number" id="fps-value">60</span> FPS<div class="fps-track"><i id="fps-bar"></i></div><small id="quality-value">AUTO</small></div>
+  <button id="graphics-btn" aria-label="Configurações gráficas">⚙️</button>
+
+  <div id="graphics-panel" class="hidden">
+    <div class="panel-head"><h2>🎨 Gráficos</h2><button id="close-graphics">✕</button></div>
+    <div class="graphics-row"><label for="quality-select">Qualidade</label><select id="quality-select"><option value="auto">Automática</option><option value="high">Alta</option><option value="medium">Média</option><option value="low">Econômica</option></select></div>
+    <div class="quality-badge">FPS adaptativo: o jogo reduz ou aumenta a qualidade automaticamente para manter a fluidez.</div>
+    <p class="graphics-tip">Alta prioriza detalhes e sombras. Média equilibra visual e desempenho. Econômica prioriza estabilidade em celulares mais fracos.</p>
   </div>
 
   <div id="hint">Arraste no lado direito para girar a câmera</div>
