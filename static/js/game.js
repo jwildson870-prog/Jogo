@@ -148,6 +148,13 @@ const worker = makeNpc("Carlos — Trabalhador", 43, 37, 0x8b5cf6, "💼"); work
 // Cidade viva — NPCs circulando e trânsito simples.
 const traffic = [];
 const npcWalkers = [];
+let parkedVehicle = null;
+let driving = false;
+let vehicleSpeed = 0;
+let vehicleHeading = 0;
+let vehicleSteer = 0;
+let vehicleThrottle = 0;
+const vehicleState = { fuel: 100, damage: 0 };
 
 function createTrafficCar(x, z, axis = "x", dir = 1, color = 0xd64b3f) {
   const car = new THREE.Group();
@@ -167,6 +174,27 @@ function createTrafficCar(x, z, axis = "x", dir = 1, color = 0xd64b3f) {
   scene.add(car);
   traffic.push({group:car,axis,dir,speed:5+Math.random()*2.5,startX:x,startZ:z,range:108});
 }
+
+function createPlayerVehicle() {
+  const car = new THREE.Group();
+  car.position.set(14, .34, 12);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.5,.72,1.75), new THREE.MeshStandardMaterial({color:0x16a085,roughness:.48,metalness:.2}));
+  body.castShadow=true; car.add(body);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.15,.22,1.62), new THREE.MeshStandardMaterial({color:0x117864,roughness:.5,metalness:.2}));
+  hood.position.set(1.15,.43,0); hood.castShadow=true; car.add(hood);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.65,.72,1.48), new THREE.MeshStandardMaterial({color:0x20313c,roughness:.18,metalness:.1,transparent:true,opacity:.95}));
+  cabin.position.set(-.35,.62,0); cabin.castShadow=true; car.add(cabin);
+  for(const x of [-1.2,1.2]) for(const z of [-.92,.92]) {
+    const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.34,.34,.22,14),new THREE.MeshStandardMaterial({color:0x111418,roughness:1}));
+    wheel.rotation.z=Math.PI/2; wheel.position.set(x,.02,z); wheel.castShadow=true; car.add(wheel);
+  }
+  const lm=new THREE.MeshBasicMaterial({color:0xfff0ad}); const l1=new THREE.Mesh(new THREE.BoxGeometry(.12,.16,.42),lm); const l2=l1.clone();
+  l1.position.set(1.77,.34,-.53); l2.position.set(1.77,.34,.53); car.add(l1,l2);
+  const bm=new THREE.MeshBasicMaterial({color:0xff3322}); const b1=new THREE.Mesh(new THREE.BoxGeometry(.1,.15,.38),bm); const b2=b1.clone();
+  b1.position.set(-1.77,.34,-.53); b2.position.set(-1.77,.34,.53); car.add(b1,b2);
+  car.userData.drivable=true; scene.add(car); parkedVehicle=car;
+}
+createPlayerVehicle();
 
 // Faixas de trânsito principais da cidade.
 for (let i=0;i<3;i++) {
@@ -307,13 +335,63 @@ joy.addEventListener("pointermove", e => { if (e.pointerId === joyId) moveJoy(e)
 function releaseJoy() { joyId = null; joystick.x = 0; joystick.y = 0; stick.style.transform = ""; }
 joy.addEventListener("pointerup", releaseJoy); joy.addEventListener("pointercancel", releaseJoy);
 $("run").addEventListener("pointerdown", () => running = true); $("run").addEventListener("pointerup", () => running = false); $("run").addEventListener("pointercancel", () => running = false);
-$("interact").addEventListener("click", () => interactWith(interacting)); $("interaction-btn").addEventListener("click", () => interactWith(interacting));
+$("interact").addEventListener("click", () => driving ? exitVehicle() : interactWith(interacting));
+$("interaction-btn").addEventListener("click", () => interactWith(interacting));
+const vehicleBtn=$("vehicle-btn"); if(vehicleBtn) vehicleBtn.addEventListener("click", enterVehicle);
 
 // Arrastar no lado direito gira a câmera.
 let lookId = null, lastX = 0;
 renderer.domElement.addEventListener("pointerdown", e => { if (e.clientX > innerWidth * .42 && e.clientY > 100) { lookId = e.pointerId; lastX = e.clientX; } });
 renderer.domElement.addEventListener("pointermove", e => { if (e.pointerId === lookId) { cameraYaw -= (e.clientX - lastX) * .008; lastX = e.clientX; } });
 renderer.domElement.addEventListener("pointerup", () => lookId = null); renderer.domElement.addEventListener("pointercancel", () => lookId = null);
+
+function nearestVehicleDistance(){ return parkedVehicle ? distance(player.position,parkedVehicle.position) : 999; }
+function enterVehicle(){
+  if(driving){ exitVehicle(); return; }
+  if(nearestVehicleDistance()>5){ toast("🚗 Chegue mais perto do veículo."); return; }
+  driving=true; vehicleSpeed=0; vehicleHeading=parkedVehicle.rotation.y; player.visible=false;
+  const btn=$("vehicle-btn"); if(btn) btn.textContent="🚪";
+  toast("🚗 Você entrou no veículo");
+}
+function exitVehicle(){
+  if(!driving) return;
+  driving=false; vehicleSpeed=0; player.visible=true;
+  player.position.set(parkedVehicle.position.x+2.8,0,parkedVehicle.position.z+1.2);
+  const btn=$("vehicle-btn"); if(btn) btn.textContent="🚗";
+  toast("🚶 Você saiu do veículo");
+}
+function updateVehicle(dt){
+  if(!parkedVehicle) return;
+  const near=nearestVehicleDistance();
+  const btn=$("vehicle-btn");
+  if(btn && !driving) btn.classList.toggle("hidden",near>5);
+  if(!driving){ const hud=$("vehicle-hud"); if(hud) hud.classList.add("hidden"); return; }
+  if(vehicleState.fuel<=0){ vehicleThrottle=0; toast("⛽ Combustível vazio"); }
+  const accel=vehicleThrottle*14;
+  vehicleSpeed += accel*dt;
+  vehicleSpeed *= Math.pow(.90,dt*10);
+  vehicleSpeed=THREE.MathUtils.clamp(vehicleSpeed,-5,16);
+  vehicleSteer=THREE.MathUtils.lerp(vehicleSteer,joystick.x,Math.min(1,dt*8));
+  const steerScale=Math.min(1,Math.abs(vehicleSpeed)/3);
+  vehicleHeading -= vehicleSteer*1.65*dt*steerScale;
+  const forward=new THREE.Vector3(Math.sin(vehicleHeading),0,Math.cos(vehicleHeading));
+  parkedVehicle.position.addScaledVector(forward,vehicleSpeed*dt);
+  parkedVehicle.position.x=THREE.MathUtils.clamp(parkedVehicle.position.x,-106,106);
+  parkedVehicle.position.z=THREE.MathUtils.clamp(parkedVehicle.position.z,-106,106);
+  parkedVehicle.rotation.y=vehicleHeading;
+  vehicleState.fuel=Math.max(0,vehicleState.fuel-Math.abs(vehicleSpeed)*dt*.018);
+  player.position.copy(parkedVehicle.position);
+  if(btn) btn.textContent="🚪";
+  const hud=$("vehicle-hud"); if(hud) hud.classList.toggle("hidden",!driving);
+  const speedEl=$("vehicle-speed"), fuelEl=$("vehicle-fuel");
+  if(speedEl) speedEl.textContent=`${Math.round(Math.abs(vehicleSpeed)*7)} km/h`;
+  if(fuelEl) fuelEl.textContent=`⛽ ${Math.round(vehicleState.fuel)}%`;
+}
+function updateVehicleInput(){
+  if(!driving){ vehicleThrottle=0; return; }
+  const forwardInput=Math.max(0,-joystick.y), reverseInput=Math.max(0,joystick.y);
+  vehicleThrottle=forwardInput-reverseInput*.65;
+}
 
 function updateInteraction() {
   let nearest = null, nearestDist = 7;
@@ -387,6 +465,8 @@ function animate(now) {
   const dt = Math.min((now - last) / 1000, .05); last = now;
   const input = Math.min(1, Math.hypot(joystick.x, joystick.y));
   const isMoving = input > .05;
+  updateVehicleInput();
+  updateVehicle(dt);
   const speed = (running && state.energia > 0 ? 9 : 5) * dt;
   if (running && isMoving && state.energia > 0) state.energia = Math.max(0, state.energia - dt * 5);
   else if (!isMoving) state.energia = Math.min(100, state.energia + dt * 2.5);
@@ -397,7 +477,7 @@ function animate(now) {
   const cameraRight = new THREE.Vector3(Math.cos(cameraYaw), 0, -Math.sin(cameraYaw));
   const moveDirection = new THREE.Vector3();
 
-  if (isMoving) {
+  if (isMoving && !driving) {
     // No touchscreen, Y negativo significa "cima".
     // Por isso invertimos o eixo Y para transformar cima em avanço.
     moveDirection
@@ -424,8 +504,9 @@ function animate(now) {
   water.rotation.z += dt * .12;
   water.material.roughness = .16 + Math.sin(t*1.4)*.03;
   const daylight = .92 + Math.sin(t * .018) * .08; sun.intensity = 3.1 * daylight;
-  const target = new THREE.Vector3(player.position.x, player.position.y + 1.65, player.position.z);
-  const offset = new THREE.Vector3(-Math.sin(cameraYaw) * 9, 5.2, -Math.cos(cameraYaw) * 9);
+  const focus = driving ? parkedVehicle.position : player.position;
+  const target = new THREE.Vector3(focus.x, focus.y + (driving ? 1.7 : 1.65), focus.z);
+  const offset = new THREE.Vector3(-Math.sin(cameraYaw) * (driving ? 11 : 9), driving ? 5.8 : 5.2, -Math.cos(cameraYaw) * (driving ? 11 : 9));
   camera.position.lerp(target.clone().add(offset), Math.min(1, dt * 7)); camera.lookAt(target);
   performanceUI.interactionTimer += dt;
   performanceUI.hudTimer += dt;

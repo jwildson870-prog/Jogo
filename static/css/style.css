@@ -13,3 +13,10 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;back
 .graphics-row{margin-top:16px}.graphics-row label{display:block;font-size:11px;color:#9fb0bd;margin-bottom:7px;text-transform:uppercase;letter-spacing:.08em}.graphics-row select{width:100%;height:44px;padding:0 12px;border-radius:11px;background:#101e28;color:#fff;border:1px solid rgba(255,255,255,.1);outline:none}
 .graphics-tip{font-size:11px;line-height:1.5;color:#8fa1ae;margin:14px 0 0}.quality-badge{margin-top:10px;padding:10px 12px;border-radius:11px;background:rgba(103,232,249,.06);border:1px solid rgba(103,232,249,.1);font-size:11px;color:#c9eaf0}
 @media(max-width:600px){#performance{top:61px;right:9px;min-width:88px}#graphics-btn{top:103px;right:9px;width:38px;height:38px}#graphics-panel{padding:16px}}
+
+/* V5.2 — veículos dirigíveis */
+#vehicle-btn{background:rgba(16,185,129,.78);border-color:rgba(255,255,255,.2)}
+#vehicle-hud{position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:12;display:flex;gap:12px;align-items:center;padding:8px 12px;border-radius:12px;font:700 11px ui-monospace,monospace}
+#vehicle-hud b{font-size:15px;color:#7ee7ff}
+#vehicle-hud span{color:#cbd5e1}
+@media(max-width:600px){#vehicle-hud{top:61px}}
