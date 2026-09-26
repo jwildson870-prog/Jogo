@@ -1,6 +1,9 @@
 import * as THREE from "three";
 
-const performanceUI = { frames: 0, last: performance.now(), fps: 60, accumulator: 0, sample: 0, adaptiveTimer: 0, lodTimer: 0, interactionTimer: 0, hudTimer: 0 };
+const performanceUI = { frames: 0, last: performance.now(), fps: 60, accumulator: 0, sample: 0, adaptiveTimer: 0, lodTimer: 0, interactionTimer: 0, hudTimer: 0, saveTimer: 0, renderTimer: 0 };
+let gamePaused = false;
+let lastSaveSignature = "";
+const SAVE_KEY_V57 = "mundo-real-v57";
 let userQuality = localStorage.getItem("mundo-real-quality") || "auto";
 let quality = localStorage.getItem("mundo-real-quality") || "auto";
 const QUALITY = {
@@ -145,6 +148,7 @@ function startAmbientAudio(){
   }catch(_){ audioCtx=null; }
 }
 addEventListener('pointerdown', startAmbientAudio, {once:true});
+addEventListener('keydown', e => { if (e.key.toLowerCase() === 'p') setPaused(!gamePaused); });
 
 // Personagem.
 const player = new THREE.Group(); player.position.set(0, 0, 10); scene.add(player);
@@ -319,9 +323,49 @@ interiorExit.addEventListener('click',exitPlace);
 
 function toast(text) { $("toast").textContent = text; $("toast").classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => $("toast").classList.remove("show"), 1800); }
 function message(text) { $("message").textContent = text; }
-function saveLocal() { localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done, activeJobId: activeJob?.id || null })); }
+function buildSaveData() {
+  return {
+    version: 57,
+    savedAt: Date.now(),
+    state: { ...state, inventario: [...state.inventario], stats: { ...state.stats } },
+    missionDone: mission.done,
+    activeJobId: activeJob?.id || null,
+    player: { x: player.position.x, y: player.position.y, z: player.position.z, rotation: player.rotation.y },
+    vehicle: { fuel: vehicleState.fuel, damage: vehicleState.damage, x: parkedVehicle?.position.x || 14, z: parkedVehicle?.position.z || 12, rotation: parkedVehicle?.rotation.y || 0 },
+    world: { hour: worldClock.hour, weather: worldClock.weather, weatherTimer: worldClock.weatherTimer },
+    audio: audioEnabled,
+    quality: userQuality
+  };
+}
+function saveLocal(force = false) {
+  try {
+    const data = buildSaveData();
+    const serialized = JSON.stringify(data);
+    if (force || serialized !== lastSaveSignature) {
+      localStorage.setItem(SAVE_KEY_V57, serialized);
+      // Mantém compatibilidade com versões anteriores.
+      localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done, activeJobId: activeJob?.id || null }));
+      lastSaveSignature = serialized;
+    }
+  } catch (_) {}
+}
 function loadLocal() {
-  try { const saved = JSON.parse(localStorage.getItem("mundo-real-v2")); if (saved) { state = { ...defaultState, ...saved, stats: { ...defaultState.stats, ...(saved.stats || {}) }, inventario: Array.isArray(saved.inventario) ? saved.inventario : [] }; mission.done = !!saved.missionDone; activeJob = jobs.find(j => j.id === saved.activeJobId) || null; } } catch (_) {}
+  try {
+    const raw57 = localStorage.getItem(SAVE_KEY_V57);
+    const saved57 = raw57 ? JSON.parse(raw57) : null;
+    const legacy = JSON.parse(localStorage.getItem("mundo-real-v2") || "null");
+    const saved = saved57?.state ? { ...saved57.state, missionDone: saved57.missionDone, activeJobId: saved57.activeJobId } : legacy;
+    if (saved) {
+      state = { ...defaultState, ...saved, stats: { ...defaultState.stats, ...(saved.stats || {}) }, inventario: Array.isArray(saved.inventario) ? saved.inventario : [] };
+      mission.done = !!saved.missionDone;
+      activeJob = jobs.find(j => j.id === saved.activeJobId) || null;
+    }
+    if (saved57?.player) player.position.set(Number(saved57.player.x) || 0, Number(saved57.player.y) || 0, Number(saved57.player.z) || 10), player.rotation.y = Number(saved57.player.rotation) || 0;
+    if (saved57?.vehicle && parkedVehicle) { parkedVehicle.position.set(Number(saved57.vehicle.x) || 14, .34, Number(saved57.vehicle.z) || 12); parkedVehicle.rotation.y = Number(saved57.vehicle.rotation) || 0; vehicleState.fuel = THREE.MathUtils.clamp(Number(saved57.vehicle.fuel) || 100, 0, 100); vehicleState.damage = THREE.MathUtils.clamp(Number(saved57.vehicle.damage) || 0, 0, 100); }
+    if (saved57?.world) { worldClock.hour = Number(saved57.world.hour) || 8.5; worldClock.weatherTimer = Number(saved57.world.weatherTimer) || 80; }
+    if (typeof saved57?.audio === "boolean") audioEnabled = saved57.audio;
+    if (saved57?.quality) { userQuality = saved57.quality; quality = saved57.quality; activeQuality = quality === "auto" ? (innerWidth < 700 ? "medium" : "high") : quality; }
+  } catch (_) {}
 }
 function updateHud() {
   $("player-name").textContent = state.nome;
@@ -833,10 +877,29 @@ function updateDayNight(dt, time){
   const weatherEl=document.getElementById('world-weather'); if(weatherEl) weatherEl.textContent=worldClock.weather==='rain'?'🌧️ Chuva':worldClock.weather==='cloudy'?'☁️ Nublado':daylight<.08?'🌙 Noite':'☀️ Ensolarado';
 }
 
+function resetCheckpoint() {
+  localStorage.removeItem(SAVE_KEY_V57);
+  localStorage.removeItem("mundo-real-v2");
+  localStorage.removeItem("mundo-real-v55");
+  location.reload();
+}
+function setPaused(paused) {
+  gamePaused = paused;
+  document.body.classList.toggle("game-paused", paused);
+  const el = document.getElementById("pause-indicator");
+  if (el) el.classList.toggle("hidden", !paused);
+  if (paused) saveLocal(true);
+}
+addEventListener("visibilitychange", () => {
+  if (document.hidden) saveLocal(true);
+});
+addEventListener("beforeunload", () => saveLocal(true));
+
 let last = performance.now();
 function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min((now - last) / 1000, .05); last = now;
+  if (gamePaused) { renderer.render(scene, camera); return; }
   const input = Math.min(1, Math.hypot(joystick.x, joystick.y));
   const isMoving = input > .05;
   updateVehicleInput();
@@ -893,6 +956,8 @@ function animate(now) {
   updateAdaptiveQuality(dt);
   performanceUI.lodTimer += dt;
   if (performanceUI.lodTimer > .6) { performanceUI.lodTimer = 0; updateLOD(); }
+  performanceUI.saveTimer += dt;
+  if (performanceUI.saveTimer >= 8) { performanceUI.saveTimer = 0; saveLocal(); }
   renderer.render(scene, camera);
 }
 
