@@ -20,3 +20,13 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;back
 #vehicle-hud b{font-size:15px;color:#7ee7ff}
 #vehicle-hud span{color:#cbd5e1}
 @media(max-width:600px){#vehicle-hud{top:61px}}
+
+
+/* V5.3 — economia, empregos e inventário */
+#economy-actions{position:fixed;right:12px;top:160px;z-index:9;display:flex;flex-direction:column;gap:7px}
+#economy-actions button{position:relative;width:42px;height:42px;font-size:18px;background:rgba(6,15,22,.78)}
+#inventory-count{position:absolute;right:-3px;top:-3px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#22c55e;color:#04100a;font:800 9px/16px system-ui}
+.economy-panel{position:fixed;z-index:45;left:50%;top:50%;transform:translate(-50%,-50%);width:min(390px,calc(100vw - 28px));padding:18px;border-radius:20px;background:rgba(5,12,19,.97);box-shadow:0 24px 70px #000b;backdrop-filter:blur(18px)}
+.economy-panel .panel-head{display:flex;align-items:center;justify-content:space-between}.economy-panel h2{margin:0;font-size:18px}.economy-panel .panel-head button{width:36px;height:36px;font-size:16px;box-shadow:none;background:rgba(255,255,255,.07)}
+.economy-panel p{font-size:12px;color:#cbd5e1;margin:12px 0}.job-list,.shop-list{display:grid;gap:8px}.job-list button,.shop-list button{width:100%;height:auto;min-height:58px;border-radius:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;text-align:left;background:rgba(255,255,255,.06);font-size:12px}.job-list button:active,.shop-list button:active{background:rgba(34,197,94,.25)}.job-list b,.shop-list b{display:block}.job-list span,.shop-list span{font-size:10px;color:#8fa1ae}.economy-panel>small{display:block;color:#7ee7ff;margin-top:12px;font-size:10px}.inv-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px}.inv-item button{width:auto;height:34px;border-radius:9px;padding:0 10px;font-size:10px;background:rgba(34,197,94,.2)}.empty-inv{padding:20px;text-align:center;color:#8293a0;font-size:12px}
+@media(max-width:600px){#economy-actions{right:9px;top:148px}.economy-panel{padding:15px}.economy-panel h2{font-size:16px}}

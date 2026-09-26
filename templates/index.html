@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#081018">
-  <title>Mundo Real 3D — V4</title>
+  <title>Mundo Real 3D — V5.3</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -48,6 +48,12 @@
   <div id="toast" class="toast"></div>
 
   <div id="joystick"><div id="stick"></div></div>
+  <div id="economy-actions">
+    <button id="jobs-btn" aria-label="Empregos">💼</button>
+    <button id="shop-btn" aria-label="Loja">🛒</button>
+    <button id="inventory-btn" aria-label="Inventário">🎒<i id="inventory-count">0</i></button>
+  </div>
+
   <div id="actions">
     <button id="run" aria-label="Correr">🏃</button>
     <button id="vehicle-btn" class="hidden" aria-label="Entrar no veículo">🚗</button>
@@ -62,6 +68,30 @@
     <div class="graphics-row"><label for="quality-select">Qualidade</label><select id="quality-select"><option value="auto">Automática</option><option value="high">Alta</option><option value="medium">Média</option><option value="low">Econômica</option></select></div>
     <div class="quality-badge">FPS adaptativo: o jogo reduz ou aumenta a qualidade automaticamente para manter a fluidez.</div>
     <p class="graphics-tip">Alta prioriza detalhes e sombras. Média equilibra visual e desempenho. Econômica prioriza estabilidade em celulares mais fracos.</p>
+  </div>
+
+  <div id="economy-panels">
+    <section id="jobs-panel" class="economy-panel glass hidden">
+      <div class="panel-head"><h2>💼 Empregos</h2><button data-close-economy>✕</button></div>
+      <p id="job-status">Nenhum emprego ativo</p>
+      <div class="job-list">
+        <button data-job="entrega"><b>📦 Entrega rápida</b><span>R$ 140 • 45 XP</span></button>
+        <button data-job="servico"><b>🔧 Serviço urbano</b><span>R$ 190 • 60 XP</span></button>
+        <button data-job="transporte"><b>🚕 Transporte</b><span>R$ 220 • 75 XP</span></button>
+      </div>
+      <small id="economy-stats">0 empregos • 0 vendas</small>
+    </section>
+    <section id="shop-panel" class="economy-panel glass hidden">
+      <div class="panel-head"><h2>🛒 Loja</h2><button data-close-economy>✕</button></div>
+      <div class="shop-list">
+        <button id="buy-snack"><b>🥪 Lanche</b><span>R$ 50 • +25 energia</span></button>
+        <button id="buy-water"><b>💧 Água</b><span>R$ 20 • +10 energia</span></button>
+      </div>
+    </section>
+    <section id="inventory-panel" class="economy-panel glass hidden">
+      <div class="panel-head"><h2>🎒 Inventário</h2><button data-close-economy>✕</button></div>
+      <div id="inventory-list"></div>
+    </section>
   </div>
 
   <div id="vehicle-hud" class="glass hidden"><b id="vehicle-speed">0 km/h</b><span id="vehicle-fuel">⛽ 100%</span></div>

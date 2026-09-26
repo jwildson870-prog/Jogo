@@ -257,17 +257,23 @@ function updateLivingCity(dt, time) {
 }
 
 // Estado do jogo.
-const defaultState = { nome: "Jogador", vida: 100, dinheiro: 500, nivel: 1, xp: 0, xp_proximo: 100, energia: 100, inventario: [] };
+const defaultState = { nome: "Jogador", vida: 100, dinheiro: 500, nivel: 1, xp: 0, xp_proximo: 100, energia: 100, inventario: [], stats: { empregos: 0, vendas: 0, gastos: 0 } };
 let state = { ...defaultState };
+let activeJob = null;
+const jobs = [
+  { id: "entrega", title: "Entrega rápida", icon: "📦", start: shopkeeper, target: worker, reward: 140, xp: 45, item: "Pacote" },
+  { id: "servico", title: "Serviço urbano", icon: "🔧", start: worker, target: guide, reward: 190, xp: 60, item: "Ferramenta" },
+  { id: "transporte", title: "Transporte de passageiro", icon: "🚕", start: guide, target: shopkeeper, reward: 220, xp: 75, item: "Comprovante" }
+];
 let mission = { id: 1, done: false, npc: guide, title: "Conheça a cidade", desc: "Encontre o NPC com o ícone 💬.", rewardMoney: 100, rewardXp: 50 };
 let interacting = null;
 
 const $ = id => document.getElementById(id);
 function toast(text) { $("toast").textContent = text; $("toast").classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => $("toast").classList.remove("show"), 1800); }
 function message(text) { $("message").textContent = text; }
-function saveLocal() { localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done })); }
+function saveLocal() { localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done, activeJobId: activeJob?.id || null })); }
 function loadLocal() {
-  try { const saved = JSON.parse(localStorage.getItem("mundo-real-v2")); if (saved) { state = { ...defaultState, ...saved }; mission.done = !!saved.missionDone; } } catch (_) {}
+  try { const saved = JSON.parse(localStorage.getItem("mundo-real-v2")); if (saved) { state = { ...defaultState, ...saved, stats: { ...defaultState.stats, ...(saved.stats || {}) }, inventario: Array.isArray(saved.inventario) ? saved.inventario : [] }; mission.done = !!saved.missionDone; activeJob = jobs.find(j => j.id === saved.activeJobId) || null; } } catch (_) {}
 }
 function updateHud() {
   $("player-name").textContent = state.nome;
@@ -280,6 +286,9 @@ function updateHud() {
   $("mission-name").textContent = mission.done ? "Primeira missão concluída!" : mission.title;
   $("mission-desc").textContent = mission.done ? "Agora explore a cidade e descubra novas pessoas." : mission.desc;
   $("mission-reward").textContent = mission.done ? "Concluída ✓" : `R$ ${mission.rewardMoney} + ${mission.rewardXp} XP`;
+  const jobText = document.getElementById("job-status"); if (jobText) jobText.textContent = activeJob ? `${activeJob.icon} ${activeJob.title} → ${activeJob.target.name}` : "Nenhum emprego ativo";
+  const invText = document.getElementById("inventory-count"); if (invText) invText.textContent = state.inventario.length;
+  const statText = document.getElementById("economy-stats"); if (statText) statText.textContent = `${state.stats.empregos} empregos • ${state.stats.vendas} vendas`;
 }
 function addXp(amount) {
   state.xp += amount;
@@ -294,17 +303,61 @@ function completeMission() {
   toast(`🎉 Missão concluída! +R$ ${mission.rewardMoney} e +${mission.rewardXp} XP`);
   message("Nova jornada liberada. Explore a cidade!");
 }
+function startJob(job) {
+  if (activeJob) { toast("📋 Você já tem um emprego ativo."); return; }
+  activeJob = job; updateHud(); saveLocal();
+  closeEconomyPanels();
+  toast(`${job.icon} Trabalho iniciado: ${job.title}`);
+  message(`Vá até ${job.target.name} para concluir o trabalho.`);
+}
+function completeJob(job) {
+  if (!activeJob || activeJob.id !== job.id) return;
+  activeJob = null; state.dinheiro += job.reward; addXp(job.xp); state.inventario.push(job.item); state.stats.empregos += 1;
+  updateHud(); saveLocal(); toast(`💼 Trabalho concluído! +R$ ${job.reward} +${job.xp} XP`);
+  message("Pagamento recebido. Escolha outro trabalho quando quiser.");
+}
+function buyItem(item, price, energy = 0) {
+  if (state.dinheiro < price) { toast(`💰 Faltam R$ ${price - state.dinheiro}.`); return; }
+  state.dinheiro -= price; state.stats.gastos += price; state.inventario.push(item);
+  if (energy) state.energia = Math.min(100, state.energia + energy);
+  addXp(8); updateHud(); saveLocal(); renderInventory(); toast(`🛒 ${item} comprado por R$ ${price}.`);
+}
+function sellItem(item, price) {
+  const i = state.inventario.indexOf(item);
+  if (i < 0) { toast("📦 Você não possui esse item."); return; }
+  state.inventario.splice(i, 1); state.dinheiro += price; state.stats.vendas += 1; addXp(5); updateHud(); saveLocal(); renderInventory(); toast(`💰 ${item} vendido por R$ ${price}.`);
+}
+function renderInventory() {
+  const list = document.getElementById("inventory-list"); if (!list) return;
+  list.innerHTML = state.inventario.length ? state.inventario.map((item,i) => `<div class="inv-item"><span>📦 ${item}</span><button data-sell="${i}">Vender R$ ${Math.max(15, Math.round((item.length * 7)))} </button></div>`).join("") : '<div class="empty-inv">Inventário vazio</div>';
+  list.querySelectorAll("[data-sell]").forEach(btn => btn.addEventListener("click", () => { const item = state.inventario[Number(btn.dataset.sell)]; sellItem(item, Math.max(15, Math.round(item.length * 7))); }));
+}
+function openEconomyPanel(id) {
+  ["jobs-panel","shop-panel","inventory-panel"].forEach(x => document.getElementById(x)?.classList.add("hidden"));
+  document.getElementById(id)?.classList.remove("hidden");
+  if (id === "inventory-panel") renderInventory();
+}
+function closeEconomyPanels() { ["jobs-panel","shop-panel","inventory-panel"].forEach(x => document.getElementById(x)?.classList.add("hidden")); }
+function setupEconomyUI() {
+  document.getElementById("jobs-btn")?.addEventListener("click", () => openEconomyPanel("jobs-panel"));
+  document.getElementById("shop-btn")?.addEventListener("click", () => openEconomyPanel("shop-panel"));
+  document.getElementById("inventory-btn")?.addEventListener("click", () => openEconomyPanel("inventory-panel"));
+  document.querySelectorAll("[data-close-economy]").forEach(b => b.addEventListener("click", closeEconomyPanels));
+  document.querySelectorAll("[data-job]").forEach(b => b.addEventListener("click", () => startJob(jobs.find(j => j.id === b.dataset.job))));
+  document.getElementById("buy-snack")?.addEventListener("click", () => buyItem("Lanche", 50, 25));
+  document.getElementById("buy-water")?.addEventListener("click", () => buyItem("Água", 20, 10));
+  renderInventory();
+}
 function interactWith(target) {
   if (!target) { message("Não há ninguém próximo para interagir."); return; }
+  if (activeJob && target === activeJob.target) { completeJob(activeJob); return; }
   if (target === guide) {
-    if (!mission.done) { completeMission(); }
+    if (!mission.done) completeMission();
     else { addXp(10); toast("Marcos: Continue explorando! +10 XP"); updateHud(); saveLocal(); }
   } else if (target === shopkeeper) {
-    if (state.dinheiro >= 50) { state.dinheiro -= 50; state.inventario.push("Lanche"); state.energia = Math.min(100, state.energia + 25); addXp(20); toast("🛒 Você comprou um lanche por R$ 50. +20 XP"); }
-    else toast("💰 Você precisa de R$ 50.");
-    updateHud(); saveLocal();
+    openEconomyPanel("shop-panel");
   } else if (target === worker) {
-    state.dinheiro += 80; addXp(35); toast("💼 Trabalho concluído! +R$ 80 e +35 XP"); updateHud(); saveLocal();
+    openEconomyPanel("jobs-panel");
   }
 }
 
@@ -325,6 +378,7 @@ const graphicsPanel = document.getElementById("graphics-panel");
 const closeGraphics = document.getElementById("close-graphics");
 if (settingsBtn && graphicsPanel) settingsBtn.addEventListener("click", () => graphicsPanel.classList.remove("hidden"));
 if (closeGraphics && graphicsPanel) closeGraphics.addEventListener("click", () => graphicsPanel.classList.add("hidden"));
+setupEconomyUI();
 
 // Joystick e corrida.
 let joystick = { x: 0, y: 0 }, running = false, cameraYaw = 0, moveAmount = 0;
@@ -398,8 +452,8 @@ function updateInteraction() {
   for (const n of npcs) { const d = distance(player.position, n.group.position); if (d < nearestDist) { nearestDist = d; nearest = n; } }
   interacting = nearest;
   if (nearest) {
-    $("interaction").classList.remove("hidden"); $("interaction-title").textContent = nearest.name; $("interaction-desc").textContent = nearest.desc; $("interaction-icon").textContent = nearest.icon;
-    message(`Você está perto de ${nearest.name}`);
+    $("interaction").classList.remove("hidden"); $("interaction-title").textContent = nearest.name; $("interaction-desc").textContent = activeJob && nearest === activeJob.target ? `Concluir: ${activeJob.title} • +R$ ${activeJob.reward}` : nearest.desc; $("interaction-icon").textContent = activeJob && nearest === activeJob.target ? "📦" : nearest.icon;
+    message(activeJob && nearest === activeJob.target ? `📦 Destino do trabalho: ${nearest.name}` : `Você está perto de ${nearest.name}`);
   } else { $("interaction").classList.add("hidden"); }
   // Posicionamento aproximado dos marcadores usando projeção 3D.
   for (const n of npcs) {
