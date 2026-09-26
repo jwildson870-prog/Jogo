@@ -4,6 +4,7 @@ const performanceUI = { frames: 0, last: performance.now(), fps: 60, accumulator
 let gamePaused = false;
 let lastSaveSignature = "";
 const SAVE_KEY_V57 = "mundo-real-v57";
+const SAVE_KEY_V60 = "mundo-real-v60";
 let userQuality = localStorage.getItem("mundo-real-quality") || "auto";
 let quality = localStorage.getItem("mundo-real-quality") || "auto";
 const QUALITY = {
@@ -73,11 +74,13 @@ for(let i=-80;i<=80;i+=40){ sidewalk(-7.2,i,3.8,220); sidewalk(7.2,i,3.8,220); s
 for(let i=-80;i<=80;i+=40){ for(let p=-80;p<80;p+=8){ stripe(-.55,p,1.0,4.2); stripe(.55,p,1.0,4.2); stripe(p,-.55,4.2,1.0); stripe(p,.55,4.2,1.0); } }
 for(let x=-90;x<=90;x+=20){ lamp(x, -6.1); lamp(x, 6.1); }
 for(let z=-90;z<=90;z+=20){ lamp(-6.1,z); lamp(6.1,z); }
+const worldColliders = [];
 for (let x = -80; x <= 80; x += 40) for (let z = -80; z <= 80; z += 40) {
   if (Math.abs(x) < 1 || Math.abs(z) < 1) continue;
   const h = 8 + Math.random() * 13;
   const colors = [0x7c8790, 0x9a8774, 0x667887, 0x8c6f62, 0x707c68];
   box(x, h / 2, z, 20, h, 20, colors[Math.floor(Math.random() * colors.length)]);
+  worldColliders.push({ x, z, halfX: 9.8, halfZ: 9.8 });
   box(x, h + .8, z, 16, .8, 16, 0x555b60, {roughness:.7,metalness:.12});
   const roof = new THREE.Mesh(new THREE.CylinderGeometry(10.8,10.8,1.15,4), new THREE.MeshStandardMaterial({color:0x3e444a,roughness:.82}));
   roof.position.set(x,h+1.55,z); roof.rotation.y=Math.PI/4; roof.castShadow=true; scene.add(roof);
@@ -241,6 +244,56 @@ function createPlayerVehicle() {
 }
 createPlayerVehicle();
 
+// V6.0 — física, colisões e posto de combustível.
+const vehiclePhysics = {
+  hitCooldown: 0,
+  lastImpact: 0
+};
+const playerPhysics = { y: 0, velocityY: 0, grounded: true, jumpCooldown: 0 };
+function isInsideCollider(pos, margin=1.15) {
+  return worldColliders.some(c => Math.abs(pos.x-c.x) < c.halfX+margin && Math.abs(pos.z-c.z) < c.halfZ+margin);
+}
+function resolveWorldCollision(pos, radius=1.1) {
+  let hit=false;
+  for(const c of worldColliders){
+    const minX=c.x-c.halfX-radius, maxX=c.x+c.halfX+radius;
+    const minZ=c.z-c.halfZ-radius, maxZ=c.z+c.halfZ+radius;
+    if(pos.x>minX && pos.x<maxX && pos.z>minZ && pos.z<maxZ){
+      const dx=Math.min(Math.abs(pos.x-minX),Math.abs(maxX-pos.x));
+      const dz=Math.min(Math.abs(pos.z-minZ),Math.abs(maxZ-pos.z));
+      if(dx<dz) pos.x = pos.x<c.x ? minX : maxX;
+      else pos.z = pos.z<c.z ? minZ : maxZ;
+      hit=true;
+    }
+  }
+  return hit;
+}
+function tryJump(){
+  if(driving || interiorState?.inside || !playerPhysics.grounded || playerPhysics.jumpCooldown>0) return;
+  playerPhysics.velocityY=7.2; playerPhysics.grounded=false; playerPhysics.jumpCooldown=.25; toast('🦘 Pulo');
+}
+function updatePlayerPhysics(dt){
+  playerPhysics.jumpCooldown=Math.max(0,playerPhysics.jumpCooldown-dt);
+  if(!playerPhysics.grounded){
+    playerPhysics.velocityY-=18*dt;
+    playerPhysics.y+=playerPhysics.velocityY*dt;
+    if(playerPhysics.y<=0){ playerPhysics.y=0; playerPhysics.velocityY=0; playerPhysics.grounded=true; }
+  }
+  player.position.y=playerPhysics.y;
+}
+function createGasStation(){
+  const p={id:'posto',name:'Posto Avenida',type:'posto',x:-64,z:-64,icon:'⛽',desc:'Abasteça o veículo e faça uma revisão rápida.'};
+  places.push(p);
+  const base=box(p.x,.22,p.z,15,.44,9,0x4a5258,{roughness:.82});
+  base.userData.gasStation=true;
+  for(const x of [-4,0,4]){
+    box(p.x+x,2.0,p.z-2.0,1.8,3.5,1.3,0xd9e2e8,{metalness:.2,roughness:.45});
+    box(p.x+x,3.85,p.z-2.0,2.1,.18,1.6,0x25313a,{metalness:.4,roughness:.3});
+  }
+  box(p.x,1.1,p.z+3.1,6.5,2.2,.35,0xe5b93f,{roughness:.6});
+  createInterior(p); addPlaceEntrance(p);
+}
+
 // Faixas de trânsito principais da cidade.
 for (let i=0;i<3;i++) {
   createTrafficCar(-95-i*28, -5, "x", 1, [0xd64b3f,0x2f80ed,0xf0b429][i]);
@@ -325,7 +378,7 @@ function toast(text) { $("toast").textContent = text; $("toast").classList.add("
 function message(text) { $("message").textContent = text; }
 function buildSaveData() {
   return {
-    version: 57,
+    version: 60,
     savedAt: Date.now(),
     state: { ...state, inventario: [...state.inventario], stats: { ...state.stats } },
     missionDone: mission.done,
@@ -334,7 +387,8 @@ function buildSaveData() {
     vehicle: { fuel: vehicleState.fuel, damage: vehicleState.damage, x: parkedVehicle?.position.x || 14, z: parkedVehicle?.position.z || 12, rotation: parkedVehicle?.rotation.y || 0 },
     world: { hour: worldClock.hour, weather: worldClock.weather, weatherTimer: worldClock.weatherTimer },
     audio: audioEnabled,
-    quality: userQuality
+    quality: userQuality,
+    v60: { vehicleDamage: vehicleState.damage, vehicleFuel: vehicleState.fuel, playerY: playerPhysics.y }
   };
 }
 function saveLocal(force = false) {
@@ -343,6 +397,7 @@ function saveLocal(force = false) {
     const serialized = JSON.stringify(data);
     if (force || serialized !== lastSaveSignature) {
       localStorage.setItem(SAVE_KEY_V57, serialized);
+      localStorage.setItem(SAVE_KEY_V60, serialized);
       // Mantém compatibilidade com versões anteriores.
       localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done, activeJobId: activeJob?.id || null }));
       lastSaveSignature = serialized;
@@ -362,6 +417,7 @@ function loadLocal() {
     }
     if (saved57?.player) player.position.set(Number(saved57.player.x) || 0, Number(saved57.player.y) || 0, Number(saved57.player.z) || 10), player.rotation.y = Number(saved57.player.rotation) || 0;
     if (saved57?.vehicle && parkedVehicle) { parkedVehicle.position.set(Number(saved57.vehicle.x) || 14, .34, Number(saved57.vehicle.z) || 12); parkedVehicle.rotation.y = Number(saved57.vehicle.rotation) || 0; vehicleState.fuel = THREE.MathUtils.clamp(Number(saved57.vehicle.fuel) || 100, 0, 100); vehicleState.damage = THREE.MathUtils.clamp(Number(saved57.vehicle.damage) || 0, 0, 100); }
+    if (saved57?.v60) { vehicleState.damage=THREE.MathUtils.clamp(Number(saved57.v60.vehicleDamage)||vehicleState.damage,0,100); vehicleState.fuel=THREE.MathUtils.clamp(Number(saved57.v60.vehicleFuel)||vehicleState.fuel,0,100); playerPhysics.y=THREE.MathUtils.clamp(Number(saved57.v60.playerY)||0,0,4); }
     if (saved57?.world) { worldClock.hour = Number(saved57.world.hour) || 8.5; worldClock.weatherTimer = Number(saved57.world.weatherTimer) || 80; }
     if (typeof saved57?.audio === "boolean") audioEnabled = saved57.audio;
     if (saved57?.quality) { userQuality = saved57.quality; quality = saved57.quality; activeQuality = quality === "auto" ? (innerWidth < 700 ? "medium" : "high") : quality; }
@@ -592,6 +648,11 @@ if (settingsBtn && graphicsPanel) settingsBtn.addEventListener("click", () => gr
 if (closeGraphics && graphicsPanel) closeGraphics.addEventListener("click", () => graphicsPanel.classList.add("hidden"));
 setupEconomyUI();
 
+const jumpBtn=document.createElement('button'); jumpBtn.id='jump-btn'; jumpBtn.className='hidden'; jumpBtn.textContent='🦘'; jumpBtn.setAttribute('aria-label','Pular'); document.body.appendChild(jumpBtn);
+jumpBtn.addEventListener('pointerdown', e=>{e.preventDefault(); tryJump();});
+const refuelBtn=document.createElement('button'); refuelBtn.id='refuel-btn'; refuelBtn.className='action-extra hidden'; refuelBtn.textContent='⛽ ABASTECER R$ 80'; document.body.appendChild(refuelBtn);
+refuelBtn.addEventListener('click',()=>{ if(!driving){toast('🚗 Entre no veículo primeiro.');return;} if(state.dinheiro<80){toast('💰 Você precisa de R$ 80.');return;} state.dinheiro-=80; vehicleState.fuel=100; vehicleState.damage=Math.max(0,vehicleState.damage-15); addXp(12); updateHud(); saveLocal(true); toast('⛽ Tanque cheio e revisão rápida feita!'); });
+
 // Joystick e corrida.
 let joystick = { x: 0, y: 0 }, running = false, cameraYaw = 0, moveAmount = 0;
 const clock = new THREE.Clock(), stick = $("stick"), joy = $("joystick"); let joyId = null;
@@ -623,7 +684,9 @@ function enterVehicle(){
 function exitVehicle(){
   if(!driving) return;
   driving=false; vehicleSpeed=0; player.visible=true;
-  player.position.set(parkedVehicle.position.x+2.8,0,parkedVehicle.position.z+1.2);
+  const exitPos=new THREE.Vector3(parkedVehicle.position.x+2.8,0,parkedVehicle.position.z+1.2);
+  if(isInsideCollider(exitPos,.7)) exitPos.set(parkedVehicle.position.x-2.8,0,parkedVehicle.position.z-1.2);
+  player.position.copy(exitPos);
   const btn=$("vehicle-btn"); if(btn) btn.textContent="🚗";
   toast("🚶 Você saiu do veículo");
 }
@@ -632,17 +695,39 @@ function updateVehicle(dt){
   const near=nearestVehicleDistance();
   const btn=$("vehicle-btn");
   if(btn && !driving) btn.classList.toggle("hidden",near>5);
+  const jump=document.getElementById('jump-btn'); if(jump) jump.classList.toggle('hidden', driving || !playerPhysics.grounded);
+  const refuel=document.getElementById('refuel-btn');
+  const atGas=places?.some(p=>p.id==='posto' && distance(parkedVehicle.position,new THREE.Vector3(p.x,0,p.z-10))<6);
+  if(refuel) refuel.classList.toggle('hidden', !driving || !atGas);
   if(!driving){ const hud=$("vehicle-hud"); if(hud) hud.classList.add("hidden"); return; }
   if(vehicleState.fuel<=0){ vehicleThrottle=0; toast("⛽ Combustível vazio"); }
   const accel=vehicleThrottle*14;
   vehicleSpeed += accel*dt;
   vehicleSpeed *= Math.pow(.90,dt*10);
-  vehicleSpeed=THREE.MathUtils.clamp(vehicleSpeed,-5,16);
+  const damageLimit=THREE.MathUtils.lerp(16,5,vehicleState.damage/100);
+  vehicleSpeed=THREE.MathUtils.clamp(vehicleSpeed,-5,damageLimit);
+  vehiclePhysics.hitCooldown=Math.max(0,vehiclePhysics.hitCooldown-dt);
   vehicleSteer=THREE.MathUtils.lerp(vehicleSteer,joystick.x,Math.min(1,dt*8));
   const steerScale=Math.min(1,Math.abs(vehicleSpeed)/3);
   vehicleHeading -= vehicleSteer*1.65*dt*steerScale;
   const forward=new THREE.Vector3(Math.sin(vehicleHeading),0,Math.cos(vehicleHeading));
+  const previousVehiclePos=parkedVehicle.position.clone();
   parkedVehicle.position.addScaledVector(forward,vehicleSpeed*dt);
+  if(resolveWorldCollision(parkedVehicle.position,2.0)){
+    parkedVehicle.position.copy(previousVehiclePos);
+    vehicleSpeed *= -.32;
+    vehicleState.damage=Math.min(100,vehicleState.damage + Math.max(2,Math.abs(vehicleSpeed)*2.2));
+    if(vehiclePhysics.hitCooldown<=0){ toast(`💥 Colisão! Danos: ${Math.round(vehicleState.damage)}%`); vehiclePhysics.hitCooldown=.7; }
+  }
+  // Colisão simples com o trânsito.
+  for(const v of traffic){
+    const d=distance(parkedVehicle.position,v.group.position);
+    if(d<3.15 && vehiclePhysics.hitCooldown<=0){
+      const away=new THREE.Vector3(parkedVehicle.position.x-v.group.position.x,0,parkedVehicle.position.z-v.group.position.z).normalize();
+      parkedVehicle.position.addScaledVector(away,.9); vehicleSpeed*=-.45; v.speed=Math.max(2,v.speed*.82);
+      vehicleState.damage=Math.min(100,vehicleState.damage+7); vehiclePhysics.hitCooldown=.9; toast(`🚗💥 Batida! Danos: ${Math.round(vehicleState.damage)}%`);
+    }
+  }
   parkedVehicle.position.x=THREE.MathUtils.clamp(parkedVehicle.position.x,-106,106);
   parkedVehicle.position.z=THREE.MathUtils.clamp(parkedVehicle.position.z,-106,106);
   parkedVehicle.rotation.y=vehicleHeading;
@@ -652,7 +737,7 @@ function updateVehicle(dt){
   const hud=$("vehicle-hud"); if(hud) hud.classList.toggle("hidden",!driving);
   const speedEl=$("vehicle-speed"), fuelEl=$("vehicle-fuel");
   if(speedEl) speedEl.textContent=`${Math.round(Math.abs(vehicleSpeed)*7)} km/h`;
-  if(fuelEl) fuelEl.textContent=`⛽ ${Math.round(vehicleState.fuel)}%`;
+  if(fuelEl) fuelEl.textContent=`⛽ ${Math.round(vehicleState.fuel)}% • 🔧 ${Math.round(vehicleState.damage)}%`;
 }
 function updateVehicleInput(){
   if(!driving){ vehicleThrottle=0; return; }
@@ -726,6 +811,7 @@ function addPlaceEntrance(place){
   document.body.appendChild(text); place.label=text; place.sign=sign;
 }
 places.forEach(addPlaceEntrance);
+createGasStation();
 
 function nearestPlace(){
   if(interiorState.inside) return null;
@@ -879,6 +965,7 @@ function updateDayNight(dt, time){
 
 function resetCheckpoint() {
   localStorage.removeItem(SAVE_KEY_V57);
+  localStorage.removeItem(SAVE_KEY_V60);
   localStorage.removeItem("mundo-real-v2");
   localStorage.removeItem("mundo-real-v55");
   location.reload();
@@ -903,6 +990,7 @@ function animate(now) {
   const input = Math.min(1, Math.hypot(joystick.x, joystick.y));
   const isMoving = input > .05;
   updateVehicleInput();
+  updatePlayerPhysics(dt);
   updateVehicle(dt);
   const speed = (running && state.energia > 0 ? 9 : 5) * dt;
   if (running && isMoving && state.energia > 0) state.energia = Math.max(0, state.energia - dt * 5);
@@ -922,7 +1010,9 @@ function animate(now) {
       .addScaledVector(cameraForward, -joystick.y)
       .normalize();
 
+    const beforeX=player.position.x, beforeZ=player.position.z;
     player.position.addScaledVector(moveDirection, speed);
+    if(resolveWorldCollision(player.position, .75)){ player.position.x=beforeX; player.position.z=beforeZ; toast('🧱 Não dá para atravessar o prédio.'); }
 
     // O personagem acompanha exatamente a direção escolhida no joystick.
     const desired = Math.atan2(moveDirection.x, moveDirection.z);
@@ -943,7 +1033,6 @@ function animate(now) {
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
   water.rotation.z += dt * .12;
   water.material.roughness = .16 + Math.sin(t*1.4)*.03;
-  const daylight = .92 + Math.sin(t * .018) * .08; sun.intensity = 3.1 * daylight;
   const focus = driving ? parkedVehicle.position : player.position;
   const target = new THREE.Vector3(focus.x, focus.y + (driving ? 1.7 : 1.65), focus.z);
   const offset = new THREE.Vector3(-Math.sin(cameraYaw) * (driving ? 11 : 9), driving ? 5.8 : 5.2, -Math.cos(cameraYaw) * (driving ? 11 : 9));
