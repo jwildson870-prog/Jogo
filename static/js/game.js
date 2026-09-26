@@ -13,6 +13,19 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x86b9ce);
 scene.fog = new THREE.Fog(0x86b9ce, 45, QUALITY[activeQuality].fog);
 
+// V5.6 — ciclo dia/noite, clima e áudio ambiente.
+const worldClock = { hour: 8.5, speed: 0.075, weather: "clear", weatherTimer: 95, rainTimer: 0, lightningTimer: 0 };
+const weatherColors = {
+  clear: { sky: 0x86b9ce, fog: 0x86b9ce },
+  cloudy: { sky: 0x687987, fog: 0x687987 },
+  rain: { sky: 0x4e5d68, fog: 0x53616a }
+};
+const streetLights = [];
+let weatherDrops = null;
+let weatherDropPositions = null;
+let audioCtx = null, audioMaster = null, ambientGain = null, windOsc = null;
+let audioEnabled = localStorage.getItem("mundo-real-audio") !== "off";
+
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, .1, 500);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(QUALITY[activeQuality].pixel);
@@ -47,7 +60,7 @@ function lamp(x,z){
   const arm=box(x+.42,4.45,z,.9,.09,.09,0x252b31,{metalness:.7,roughness:.3});
   const glow=new THREE.Mesh(new THREE.SphereGeometry(.16,10,8),new THREE.MeshStandardMaterial({color:0xffe6a3,emissive:0xffb52e,emissiveIntensity:2.2}));
   glow.position.set(x+.83,4.34,z); scene.add(glow);
-  const light=new THREE.PointLight(0xffc96b,.75,9,2); light.position.copy(glow.position); scene.add(light);
+  const light=new THREE.PointLight(0xffc96b,.75,9,2); light.position.copy(glow.position); scene.add(light); streetLights.push(light);
 }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.z - b.z); }
 
@@ -104,6 +117,34 @@ for(let i=0;i<12;i++){
   for(let j=0;j<3;j++){ const puff=new THREE.Mesh(new THREE.SphereGeometry(3+Math.random()*1.8,12,8),new THREE.MeshStandardMaterial({color:0xffffff,transparent:true,opacity:.78,roughness:1})); puff.position.set(j*4,Math.random()*1.2,0); cloud.add(puff); }
   cloud.position.set(-95+Math.random()*190,42+Math.random()*25,-100+Math.random()*120); scene.add(cloud);
 }
+
+// V5.6 — partículas simples de chuva, ativadas apenas quando o clima exige.
+function createWeatherSystem(){
+  const count = activeQuality === "low" ? 220 : activeQuality === "medium" ? 420 : 650;
+  weatherDropPositions = new Float32Array(count * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(weatherDropPositions, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xb9d9e8, size: activeQuality === "low" ? .08 : .11, transparent: true, opacity: .6, depthWrite: false });
+  weatherDrops = new THREE.Points(geo, mat); weatherDrops.visible = false; scene.add(weatherDrops);
+  for(let i=0;i<count;i++){ weatherDropPositions[i*3]=(Math.random()-.5)*180; weatherDropPositions[i*3+1]=Math.random()*35+2; weatherDropPositions[i*3+2]=(Math.random()-.5)*180; }
+}
+createWeatherSystem();
+
+function startAmbientAudio(){
+  if(!audioEnabled || audioCtx) return;
+  try{
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioMaster = audioCtx.createGain(); audioMaster.gain.value=.045; audioMaster.connect(audioCtx.destination);
+    ambientGain = audioCtx.createGain(); ambientGain.gain.value=.35; ambientGain.connect(audioMaster);
+    const buffer=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate), data=buffer.getChannelData(0);
+    for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*.22;
+    const source=audioCtx.createBufferSource(); source.buffer=buffer; source.loop=true;
+    const filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=900;
+    source.connect(filter); filter.connect(ambientGain); source.start();
+    windOsc=audioCtx.createOscillator(); const windGain=audioCtx.createGain(); windOsc.type='sine'; windOsc.frequency.value=105; windGain.gain.value=.012; windOsc.connect(windGain); windGain.connect(ambientGain); windOsc.start();
+  }catch(_){ audioCtx=null; }
+}
+addEventListener('pointerdown', startAmbientAudio, {once:true});
 
 // Personagem.
 const player = new THREE.Group(); player.position.set(0, 0, 10); scene.add(player);
@@ -488,7 +529,7 @@ function v55SetupUI(){
 }
 v55SetupUI();
 
-loadLocal(); updateHud(); applyQuality(activeQuality); updateGraphicsHUD();
+loadLocal(); setWeather(localStorage.getItem("mundo-real-weather") || "clear", false); updateHud(); applyQuality(activeQuality); updateGraphicsHUD();
 const qualitySelect = document.getElementById("quality-select");
 if (qualitySelect) {
   qualitySelect.value = userQuality;
@@ -746,6 +787,52 @@ function updateGraphicsHUD() {
   if (el) el.textContent = userQuality === "auto" ? `AUTO • ${activeQuality.toUpperCase()}` : userQuality.toUpperCase();
 }
 
+function setWeather(type, announce=true){
+  worldClock.weather=type;
+  const c=weatherColors[type] || weatherColors.clear;
+  scene.background.setHex(c.sky); scene.fog.color.setHex(c.fog);
+  if(weatherDrops) weatherDrops.visible = type === "rain";
+  if(announce && typeof toast === "function") toast(type === "rain" ? "🌧️ Começou a chover" : type === "cloudy" ? "☁️ O céu ficou nublado" : "☀️ O tempo abriu");
+  localStorage.setItem('mundo-real-weather', type);
+}
+function updateWeather(dt){
+  worldClock.weatherTimer -= dt;
+  if(worldClock.weatherTimer <= 0){
+    const roll=Math.random(); setWeather(roll<.45?'clear':roll<.75?'cloudy':'rain');
+    worldClock.weatherTimer=70+Math.random()*110;
+  }
+  if(weatherDrops && worldClock.weather === 'rain'){
+    const pos=weatherDropPositions;
+    for(let i=0;i<pos.length;i+=3){ pos[i+1]-=dt*22; pos[i]+=dt*1.4; if(pos[i+1]<1){pos[i+1]=35+Math.random()*4; pos[i]=(Math.random()-.5)*180; pos[i+2]=(Math.random()-.5)*180;} }
+    weatherDrops.geometry.attributes.position.needsUpdate=true;
+  }
+}
+function updateDayNight(dt, time){
+  worldClock.hour=(worldClock.hour + dt*worldClock.speed) % 24;
+  const angle=(worldClock.hour/24)*Math.PI*2 - Math.PI/2;
+  const sunY=Math.sin(angle);
+  const daylight=THREE.MathUtils.clamp((sunY+.12)/1.08,0,1);
+  const warmth=THREE.MathUtils.lerp(.55,1,daylight);
+  sun.position.set(Math.cos(angle)*75, Math.max(8,sunY*80+18), Math.sin(angle)*75);
+  sun.intensity=THREE.MathUtils.lerp(.18,3.15,daylight);
+  sun.color.setRGB(1, .72+.28*daylight, .52+.48*daylight);
+  scene.children.forEach(o=>{
+    if(o.isHemisphereLight) { o.intensity=THREE.MathUtils.lerp(.55,2.05,daylight); }
+  });
+  const base=weatherColors[worldClock.weather] || weatherColors.clear;
+  const night=1-daylight;
+  const baseColor=new THREE.Color(base.sky);
+  const nightColor=new THREE.Color(0x07111f);
+  scene.background.copy(baseColor).lerp(nightColor, night*.78);
+  scene.fog.color.copy(baseColor).lerp(nightColor, night*.7);
+  streetLights.forEach(l=>l.intensity=THREE.MathUtils.lerp(2.2,.05,daylight));
+  const nightSkySun=scene.getObjectByProperty('uuid', skySun?.uuid);
+  if(nightSkySun) { nightSkySun.material.color.setHex(daylight>.08?0xffe6a1:0xc8d8ff); nightSkySun.visible=daylight>.03; }
+  if(audioCtx && ambientGain){ ambientGain.gain.setTargetAtTime(.22 + night*.16 + (worldClock.weather==='rain'?.16:0), audioCtx.currentTime, .4); }
+  const timeEl=document.getElementById('world-time'); if(timeEl) timeEl.textContent=`${String(Math.floor(worldClock.hour)).padStart(2,'0')}:${String(Math.floor((worldClock.hour%1)*60)).padStart(2,'0')}`;
+  const weatherEl=document.getElementById('world-weather'); if(weatherEl) weatherEl.textContent=worldClock.weather==='rain'?'🌧️ Chuva':worldClock.weather==='cloudy'?'☁️ Nublado':daylight<.08?'🌙 Noite':'☀️ Ensolarado';
+}
+
 let last = performance.now();
 function animate(now) {
   requestAnimationFrame(animate);
@@ -788,6 +875,8 @@ function animate(now) {
   torso.position.y = 1.75 + bob; neck.position.y = 2.38 + bob; head.position.y = 2.85 + bob; hair.position.y = 3.02 + bob;
   if (interiorState.inside) { state.energia = Math.min(100, state.energia + dt * 7); state.vida = Math.min(100, state.vida + dt * 1.5); }
   updateLivingCity(dt, t);
+  updateDayNight(dt, t);
+  updateWeather(dt);
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
   water.rotation.z += dt * .12;
   water.material.roughness = .16 + Math.sin(t*1.4)*.03;
