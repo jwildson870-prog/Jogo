@@ -368,6 +368,126 @@ function interactWith(target) {
   }
 }
 
+
+// V5.5 — Missões, eventos e consequências.
+const v55 = {
+  missionIndex: 0,
+  missionCompleted: 0,
+  activeEvent: null,
+  eventTimer: 0,
+  eventCooldown: 22,
+  eventCount: 0,
+  consequenceCount: 0
+};
+const v55Missions = [
+  {id:'m1', title:'Entrega importante', desc:'Leve a encomenda até Carlos — Trabalhador.', targetType:'npc', target:()=>worker, reward:180, xp:55, icon:'📦'},
+  {id:'m2', title:'Compras para o bairro', desc:'Visite o Mercado Central.', targetType:'place', target:()=>places.find(p=>p.id==='loja'), reward:120, xp:40, icon:'🛒'},
+  {id:'m3', title:'Revisão do veículo', desc:'Vá até a Oficina do Bairro.', targetType:'place', target:()=>places.find(p=>p.id==='oficina'), reward:200, xp:65, icon:'🔧'},
+  {id:'m4', title:'Pausa merecida', desc:'Visite o Café da Praça para recuperar energia.', targetType:'place', target:()=>places.find(p=>p.id==='cafe'), reward:150, xp:45, icon:'☕'},
+  {id:'m5', title:'Recado do guia', desc:'Encontre Marcos — Guia para receber uma nova tarefa.', targetType:'npc', target:()=>guide, reward:230, xp:80, icon:'💬'}
+];
+const v55Events = [
+  {id:'traffic', title:'🚧 Trânsito intenso', desc:'As avenidas ficaram congestionadas. Complete o evento indo até Carlos.', duration:28, reward:110, xp:30},
+  {id:'delivery', title:'🚨 Entrega urgente', desc:'Marcos precisa de ajuda. Chegue até ele antes do tempo acabar.', duration:25, reward:160, xp:45},
+  {id:'market', title:'🛍️ Promoção relâmpago', desc:'Ana abriu uma oportunidade especial no Mercado Central.', duration:22, reward:90, xp:25}
+];
+function v55CurrentMission(){ return v55Missions[v55.missionIndex % v55Missions.length]; }
+function v55TargetPosition(targetType, target){
+  if(targetType==='npc' && target?.group) return target.group.position;
+  if(targetType==='place' && target) return new THREE.Vector3(target.x,0,target.z-10);
+  return null;
+}
+function v55Save(){
+  localStorage.setItem('mundo-real-v55', JSON.stringify({missionIndex:v55.missionIndex, missionCompleted:v55.missionCompleted, eventCount:v55.eventCount, consequenceCount:v55.consequenceCount}));
+}
+function v55Load(){
+  try{
+    const x=JSON.parse(localStorage.getItem('mundo-real-v55')||'null');
+    if(x){ v55.missionIndex=Number(x.missionIndex)||0; v55.missionCompleted=Number(x.missionCompleted)||0; v55.eventCount=Number(x.eventCount)||0; v55.consequenceCount=Number(x.consequenceCount)||0; }
+  }catch(_){ }
+}
+function v55MissionText(){
+  const m=v55CurrentMission();
+  const target=m.target();
+  return {m,target};
+}
+function v55RenderMission(){
+  const {m,target}=v55MissionText();
+  const elName=$('mission-name'), elDesc=$('mission-desc'), elReward=$('mission-reward'), elProg=$('mission-progress');
+  if(!elName) return;
+  elName.textContent=`${m.icon} ${m.title}`;
+  elDesc.textContent=m.desc;
+  elReward.textContent=`R$ ${m.reward} + ${m.xp} XP`;
+  elProg.textContent=`${v55.missionCompleted}/${v55Missions.length}`;
+}
+function v55CompleteMission(){
+  const {m}=v55MissionText();
+  state.dinheiro+=m.reward; addXp(m.xp); state.stats.empregos += 1;
+  v55.missionCompleted+=1; v55.missionIndex=(v55.missionIndex+1)%v55Missions.length;
+  v55Save(); updateHud(); saveLocal();
+  toast(`🎯 Missão concluída! +R$ ${m.reward} +${m.xp} XP`);
+  message('Nova missão disponível.');
+}
+function v55EventTarget(ev){
+  if(ev.id==='traffic') return {type:'npc', target:worker};
+  if(ev.id==='delivery') return {type:'npc', target:guide};
+  return {type:'place', target:places.find(p=>p.id==='loja')};
+}
+function v55StartEvent(){
+  if(v55.activeEvent || v55.eventCooldown>0) return;
+  const ev=v55Events[Math.floor(Math.random()*v55Events.length)];
+  v55.activeEvent={...ev, remaining:ev.duration}; v55.eventCount+=1;
+  if(ev.id==='traffic') traffic.forEach(v=>v.speed*=.62);
+  const ui=$('event-card'); if(ui) ui.classList.remove('hidden');
+  toast(`${ev.title} começou!`); v55Save();
+}
+function v55EndEvent(success=false){
+  const ev=v55.activeEvent; if(!ev) return;
+  if(success){ state.dinheiro+=ev.reward; addXp(ev.xp); toast(`🏆 Evento concluído! +R$ ${ev.reward} +${ev.xp} XP`); }
+  else { state.energia=Math.max(0,state.energia-8); state.vida=Math.max(0,state.vida-4); v55.consequenceCount+=1; toast(`⏰ Evento perdido. Energia -8 • Vida -4`); }
+  if(ev.id==='traffic') traffic.forEach(v=>v.speed/=.62);
+  v55.activeEvent=null; v55.eventCooldown=35;
+  $('event-card')?.classList.add('hidden');
+  updateHud(); saveLocal(); v55Save();
+}
+function v55CheckTargets(dt){
+  const {m,target}=v55MissionText();
+  const pos=v55TargetPosition(m.targetType,target);
+  if(pos && distance(player.position,pos)<5.5) v55CompleteMission();
+  const ev=v55.activeEvent;
+  if(ev){
+    const t=v55EventTarget(ev), p=v55TargetPosition(t.type,t.target);
+    if(p && distance(player.position,p)<5.5) v55EndEvent(true);
+  }
+  if(v55.activeEvent){
+    v55.activeEvent.remaining-=dt;
+    const timer=$('event-timer'); if(timer) timer.textContent=`${Math.ceil(v55.activeEvent.remaining)}s`;
+    if(v55.activeEvent.remaining<=0) v55EndEvent(false);
+  } else if(v55.eventCooldown>0) v55.eventCooldown-=dt;
+  else if(Math.random()<dt*.018) v55StartEvent();
+}
+function v55RenderEvent(){
+  const ev=v55.activeEvent; const card=$('event-card');
+  if(!card) return;
+  if(!ev){card.classList.add('hidden'); return;}
+  card.classList.remove('hidden');
+  $('event-title').textContent=ev.title;
+  $('event-desc').textContent=ev.desc;
+  $('event-timer').textContent=`${Math.ceil(ev.remaining)}s`;
+}
+function v55SetupUI(){
+  const card=document.createElement('div'); card.id='event-card'; card.className='glass event-card hidden';
+  card.innerHTML='<div class="event-head"><b id="event-title">EVENTO</b><strong id="event-timer">0s</strong></div><small id="event-desc">Evento ativo</small>';
+  document.body.appendChild(card);
+  const mbtn=document.createElement('button'); mbtn.id='mission-now'; mbtn.className='mission-now'; mbtn.textContent='🎯'; mbtn.title='Mostrar missão'; document.body.appendChild(mbtn);
+  mbtn.addEventListener('click',()=>{v55RenderMission(); toast(`${v55CurrentMission().icon} ${v55CurrentMission().title}`);});
+  v55Load();
+  const oldHud=updateHud;
+  updateHud=function(){ oldHud(); v55RenderMission(); v55RenderEvent(); };
+  updateHud();
+}
+v55SetupUI();
+
 loadLocal(); updateHud(); applyQuality(activeQuality); updateGraphicsHUD();
 const qualitySelect = document.getElementById("quality-select");
 if (qualitySelect) {
@@ -680,6 +800,7 @@ function animate(now) {
   performanceUI.hudTimer += dt;
   if (performanceUI.interactionTimer > .12) { performanceUI.interactionTimer = 0; updateInteraction(); updatePlaceUI(); }
   if (performanceUI.hudTimer > .18) { performanceUI.hudTimer = 0; updateHud(); }
+  v55CheckTargets(dt);
   updateAdaptiveQuality(dt);
   performanceUI.lodTimer += dt;
   if (performanceUI.lodTimer > .6) { performanceUI.lodTimer = 0; updateLOD(); }
