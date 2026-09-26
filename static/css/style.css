@@ -30,3 +30,10 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:3;back
 .economy-panel .panel-head{display:flex;align-items:center;justify-content:space-between}.economy-panel h2{margin:0;font-size:18px}.economy-panel .panel-head button{width:36px;height:36px;font-size:16px;box-shadow:none;background:rgba(255,255,255,.07)}
 .economy-panel p{font-size:12px;color:#cbd5e1;margin:12px 0}.job-list,.shop-list{display:grid;gap:8px}.job-list button,.shop-list button{width:100%;height:auto;min-height:58px;border-radius:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;text-align:left;background:rgba(255,255,255,.06);font-size:12px}.job-list button:active,.shop-list button:active{background:rgba(34,197,94,.25)}.job-list b,.shop-list b{display:block}.job-list span,.shop-list span{font-size:10px;color:#8fa1ae}.economy-panel>small{display:block;color:#7ee7ff;margin-top:12px;font-size:10px}.inv-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px}.inv-item button{width:auto;height:34px;border-radius:9px;padding:0 10px;font-size:10px;background:rgba(34,197,94,.2)}.empty-inv{padding:20px;text-align:center;color:#8293a0;font-size:12px}
 @media(max-width:600px){#economy-actions{right:9px;top:148px}.economy-panel{padding:15px}.economy-panel h2{font-size:16px}}
+
+
+/* V5.4 — portas e interiores */
+.action-extra{position:fixed;right:18px;bottom:142px;z-index:30;border:1px solid rgba(255,255,255,.18);background:rgba(8,16,24,.88);color:#fff;padding:12px 16px;border-radius:14px;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.28);backdrop-filter:blur(12px)}
+#interior-exit{bottom:194px;background:rgba(145,52,42,.9)}
+.action-extra.hidden{display:none}
+@media (max-width:600px){.action-extra{right:14px;bottom:150px;padding:11px 14px;font-size:12px}.action-extra#interior-exit{bottom:202px}}

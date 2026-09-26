@@ -269,6 +269,13 @@ let mission = { id: 1, done: false, npc: guide, title: "Conheça a cidade", desc
 let interacting = null;
 
 const $ = id => document.getElementById(id);
+
+// Controles da V5.4 são criados sem exigir mudança na estrutura do Flask.
+const placeEnter=document.createElement('button'); placeEnter.id='place-enter'; placeEnter.className='action-extra hidden'; placeEnter.textContent='🏠 ENTRAR'; document.body.appendChild(placeEnter);
+const interiorExit=document.createElement('button'); interiorExit.id='interior-exit'; interiorExit.className='action-extra hidden'; interiorExit.textContent='🚪 SAIR'; document.body.appendChild(interiorExit);
+placeEnter.addEventListener('click',()=>enterPlace(nearestPlace()));
+interiorExit.addEventListener('click',exitPlace);
+
 function toast(text) { $("toast").textContent = text; $("toast").classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => $("toast").classList.remove("show"), 1800); }
 function message(text) { $("message").textContent = text; }
 function saveLocal() { localStorage.setItem("mundo-real-v2", JSON.stringify({ ...state, missionDone: mission.done, activeJobId: activeJob?.id || null })); }
@@ -401,6 +408,7 @@ renderer.domElement.addEventListener("pointerup", () => lookId = null); renderer
 
 function nearestVehicleDistance(){ return parkedVehicle ? distance(player.position,parkedVehicle.position) : 999; }
 function enterVehicle(){
+  if(interiorState.inside){ toast("🚪 Saia do interior primeiro."); return; }
   if(driving){ exitVehicle(); return; }
   if(nearestVehicleDistance()>5){ toast("🚗 Chegue mais perto do veículo."); return; }
   driving=true; vehicleSpeed=0; vehicleHeading=parkedVehicle.rotation.y; player.visible=false;
@@ -447,7 +455,112 @@ function updateVehicleInput(){
   vehicleThrottle=forwardInput-reverseInput*.65;
 }
 
+
+
+// V5.4 — Casas, lojas e interiores exploráveis.
+const interiorState = { inside: false, place: null, previousPosition: new THREE.Vector3(), previousRotation: 0 };
+const interiors = [];
+let interiorPrompt = null;
+
+function makeInteriorFurniture(group, type) {
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(18, .18, 14), new THREE.MeshStandardMaterial({color:0x6d6257, roughness:.9}));
+  floor.position.y=.02; floor.receiveShadow=true; group.add(floor);
+  const walls=[
+    [0,3.1,-7,18,.35,6.2],[0,3.1,7,18,.35,6.2],[-9,3.1,0,.35,14,6.2],[9,3.1,0,.35,14,6.2]
+  ];
+  for(const [x,y,z,w,d,h] of walls){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,d,h),new THREE.MeshStandardMaterial({color:0xd9c8aa,roughness:.9})); m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; group.add(m); }
+  const ceiling=new THREE.Mesh(new THREE.BoxGeometry(18,.25,14),new THREE.MeshStandardMaterial({color:0xb8aa98,roughness:1})); ceiling.position.y=6.25; group.add(ceiling);
+  const light=new THREE.PointLight(0xffd79a,1.8,22); light.position.set(0,5.2,0); group.add(light);
+  const rug=new THREE.Mesh(new THREE.BoxGeometry(6,.06,4),new THREE.MeshStandardMaterial({color:type==='loja'?0x315c72:type==='oficina'?0x6d4d2c:0x7b4f45,roughness:1})); rug.position.set(0,.15,1.2); group.add(rug);
+  if(type==='casa'){
+    const bed=new THREE.Mesh(new THREE.BoxGeometry(4.4,1,2.2),new THREE.MeshStandardMaterial({color:0x536d8b,roughness:.8})); bed.position.set(-4,.7,-2.2); group.add(bed);
+    const pillow=new THREE.Mesh(new THREE.BoxGeometry(1.3,.35,1.7),new THREE.MeshStandardMaterial({color:0xf0e5d2,roughness:.8})); pillow.position.set(-5.1,1.35,-2.2); group.add(pillow);
+    const table=boxInterior(group,3,.9,1.5,2.4,1.8,0x7a5236); table.position.set(4,.9,-2); 
+  } else if(type==='loja'){
+    for(let i=-1;i<=1;i++){
+      const shelf=boxInterior(group,4,.9,1.0,3.8,1.8,0x8b6a42); shelf.position.set(i*4,.9,-2.5);
+      const sign=boxInterior(group,1.4,.12,.7,3.7,.35,0xf0b429); sign.position.set(i*4,2.05,-2.5);
+    }
+    const counter=boxInterior(group,4.2,1.1,1.1,3.8,2.2,0x3d5a6c); counter.position.set(3,.6,3.3);
+  } else if(type==='oficina'){
+    const bench=boxInterior(group,5,.9,1.3,3.5,2.2,0x704b2f); bench.position.set(0,.75,-2.5);
+    const toolbox=boxInterior(group,1.5,1.2,1.5,0.9,1.8,0xd35436); toolbox.position.set(4,.8,-1);
+    const tire=new THREE.Mesh(new THREE.TorusGeometry(1,.22,10,24),new THREE.MeshStandardMaterial({color:0x15171a,roughness:1})); tire.position.set(-4,1.2,-1); tire.rotation.y=Math.PI/2; group.add(tire);
+  } else {
+    for(let i=0;i<2;i++){
+      const table=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,.18,20),new THREE.MeshStandardMaterial({color:0x7b4d32,roughness:.9})); table.position.set(i?3:-3,.95,1.5); group.add(table);
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.9,10),new THREE.MeshStandardMaterial({color:0x34373b})); leg.position.set(i?3:-3,.5,1.5); group.add(leg);
+    }
+  }
+}
+function boxInterior(group,w,h,d,x,y,z,color){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color,roughness:.8})); m.position.set(x,y,z); m.castShadow=true; group.add(m); return m; }
+
+function createInterior(place){
+  const group=new THREE.Group();
+  group.position.set(300 + interiors.length*25, 0, 300);
+  group.visible=false;
+  makeInteriorFurniture(group, place.type);
+  const door=new THREE.Mesh(new THREE.BoxGeometry(2.1,3.4,.25),new THREE.MeshStandardMaterial({color:0x49352a,roughness:.8})); door.position.set(0,1.7,6.85); group.add(door);
+  const exitSign=new THREE.Mesh(new THREE.BoxGeometry(2.8,.55,.08),new THREE.MeshBasicMaterial({color:0x63d471})); exitSign.position.set(0,4.25,6.65); group.add(exitSign);
+  scene.add(group); place.interior=group;
+}
+
+const places=[
+  {id:'casa',name:'Casa do bairro',type:'casa',x:24,z:24,icon:'🏠',desc:'Uma casa simples onde você pode descansar.'},
+  {id:'loja',name:'Mercado Central',type:'loja',x:-24,z:24,icon:'🛒',desc:'Uma loja para comprar suprimentos.'},
+  {id:'oficina',name:'Oficina do Bairro',type:'oficina',x:24,z:-24,icon:'🔧',desc:'Oficina para manutenção e serviços.'},
+  {id:'cafe',name:'Café da Praça',type:'cafe',x:-24,z:-24,icon:'☕',desc:'Um lugar para descansar e recuperar energia.'}
+];
+places.forEach(createInterior);
+
+function addPlaceEntrance(place){
+  const sign=box(place.x,2.7,place.z-10.25,5.8,1.5,.18,0x17212b,{roughness:.65,metalness:.1});
+  sign.userData.place=place;
+  const text=document.createElement('div'); text.textContent=`${place.icon} ${place.name}`;
+  text.style.cssText='position:absolute;transform:translate(-50%,-50%);font:700 13px system-ui;color:white;background:rgba(8,16,24,.82);padding:5px 9px;border-radius:10px;pointer-events:none;display:none;white-space:nowrap;z-index:20';
+  document.body.appendChild(text); place.label=text; place.sign=sign;
+}
+places.forEach(addPlaceEntrance);
+
+function nearestPlace(){
+  if(interiorState.inside) return null;
+  let best=null, bestD=4.8;
+  for(const p of places){ const d=Math.hypot(player.position.x-p.x,player.position.z-(p.z-10)); if(d<bestD){best=p;bestD=d;} }
+  return best;
+}
+function enterPlace(place){
+  if(!place || interiorState.inside) return;
+  interiorState.inside=true; interiorState.place=place; interiorState.previousPosition.copy(player.position); interiorState.previousRotation=player.rotation.y;
+  place.interior.visible=true;
+  player.position.set(place.interior.position.x,0,place.interior.position.z+4.2); player.rotation.y=Math.PI;
+  message(`${place.icon} Você entrou em ${place.name}.`); toast(`${place.icon} Entrou em ${place.name}`);
+  const exit=$('interior-exit'); if(exit) exit.classList.remove('hidden');
+}
+function exitPlace(){
+  if(!interiorState.inside) return;
+  const place=interiorState.place; if(place?.interior) place.interior.visible=false;
+  player.position.copy(interiorState.previousPosition); player.rotation.y=interiorState.previousRotation;
+  interiorState.inside=false; interiorState.place=null;
+  const exit=$('interior-exit'); if(exit) exit.classList.add('hidden');
+  message('Você voltou para a cidade.'); toast('🚪 Saiu do interior');
+}
+function updatePlaceUI(){
+  const near=nearestPlace();
+  const enter=$('place-enter');
+  if(enter){ enter.classList.toggle('hidden',!near || driving); if(near) enter.textContent=`${near.icon} ENTRAR`; }
+  for(const p of places){
+    if(!p.label) continue;
+    const pos=new THREE.Vector3(p.x,p.z?3.7:3.7,p.z-10); pos.project(camera);
+    const d=Math.hypot(player.position.x-p.x,player.position.z-p.z);
+    const visible=!interiorState.inside && pos.z<1 && d<55;
+    p.label.style.display=visible?'block':'none';
+    p.label.style.left=`${(pos.x*.5+.5)*innerWidth}px`; p.label.style.top=`${(-pos.y*.5+.5)*innerHeight}px`;
+  }
+}
+
+const originalUpdateInteraction=updateInteraction;
 function updateInteraction() {
+  if (interiorState.inside) { interacting = null; $("interaction").classList.add("hidden"); return; }
   let nearest = null, nearestDist = 7;
   for (const n of npcs) { const d = distance(player.position, n.group.position); if (d < nearestDist) { nearestDist = d; nearest = n; } }
   interacting = nearest;
@@ -549,10 +662,11 @@ function animate(now) {
     ) - Math.PI;
     player.rotation.y += diff * Math.min(1, dt * 12);
   }
-  player.position.x = THREE.MathUtils.clamp(player.position.x, -105, 105); player.position.z = THREE.MathUtils.clamp(player.position.z, -105, 105);
+  if (!interiorState.inside) { player.position.x = THREE.MathUtils.clamp(player.position.x, -105, 105); player.position.z = THREE.MathUtils.clamp(player.position.z, -105, 105); }
   const t = clock.getElapsedTime(), swing = Math.sin(t * (running ? 11 : 8)) * .65 * moveAmount, bob = Math.abs(Math.sin(t * (running ? 11 : 8))) * .045 * moveAmount;
   leftLeg.rotation.x = swing; rightLeg.rotation.x = -swing; leftArm.rotation.x = -swing * .75; rightArm.rotation.x = swing * .75;
   torso.position.y = 1.75 + bob; neck.position.y = 2.38 + bob; head.position.y = 2.85 + bob; hair.position.y = 3.02 + bob;
+  if (interiorState.inside) { state.energia = Math.min(100, state.energia + dt * 7); state.vida = Math.min(100, state.vida + dt * 1.5); }
   updateLivingCity(dt, t);
   for (const n of npcs) n.ring.rotation.z += dt * 1.5;
   water.rotation.z += dt * .12;
@@ -564,7 +678,7 @@ function animate(now) {
   camera.position.lerp(target.clone().add(offset), Math.min(1, dt * 7)); camera.lookAt(target);
   performanceUI.interactionTimer += dt;
   performanceUI.hudTimer += dt;
-  if (performanceUI.interactionTimer > .12) { performanceUI.interactionTimer = 0; updateInteraction(); }
+  if (performanceUI.interactionTimer > .12) { performanceUI.interactionTimer = 0; updateInteraction(); updatePlaceUI(); }
   if (performanceUI.hudTimer > .18) { performanceUI.hudTimer = 0; updateHud(); }
   updateAdaptiveQuality(dt);
   performanceUI.lodTimer += dt;
