@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mundo Real 3D</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="hud">
+    <div class="status">
+      <span>❤️ <b id="vida">100</b></span>
+      <span>💰 R$ <b id="dinheiro">500</b></span>
+      <span>⭐ Nv. <b id="nivel">1</b></span>
+    </div>
+    <div class="location">📍 Cidade</div>
+  </div>
+
+  <div id="message">Explore o mundo!</div>
+
+  <div id="joystick">
+    <div id="stick"></div>
+  </div>
+
+  <div id="actions">
+    <button id="run">🏃</button>
+    <button id="interact">✋</button>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="/static/js/game.js"></script>
+</body>
+</html>
