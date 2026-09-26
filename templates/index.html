@@ -3,38 +3,60 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mundo Real 3D</title>
+  <meta name="theme-color" content="#081018">
+  <title>Mundo Real 3D — V2</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
   <div id="game"></div>
 
   <div id="hud">
-    <div class="status">
-      <span>❤️ <b id="vida">100</b></span>
-      <span>💰 R$ <b id="dinheiro">500</b></span>
-      <span>⭐ Nv. <b id="nivel">1</b></span>
+    <div class="top-left">
+      <div class="player-card glass">
+        <div class="avatar">J</div>
+        <div class="player-info">
+          <strong id="player-name">Jogador</strong>
+          <span>Nível <b id="nivel">1</b></span>
+          <div class="xp"><i id="xp-bar"></i></div>
+        </div>
+      </div>
+      <div class="resources glass">
+        <span>❤️ <b id="vida">100</b></span>
+        <span>⚡ <b id="energia">100</b></span>
+        <span>💰 <b id="dinheiro">500</b></span>
+      </div>
     </div>
-    <div class="location">📍 Cidade</div>
+
+    <div class="location glass">📍 <b id="location-name">Centro da cidade</b></div>
   </div>
 
-  <div id="message">Explore o mundo!</div>
-
-  <div id="joystick">
-    <div id="stick"></div>
+  <div id="mission" class="glass mission-card">
+    <div class="mission-title"><span>🎯 MISSÃO</span><b id="mission-progress">0/1</b></div>
+    <strong id="mission-name">Conheça a cidade</strong>
+    <small id="mission-desc">Encontre o NPC com o ícone 💬.</small>
+    <div class="mission-reward">Recompensa: <b id="mission-reward">R$ 100 + 50 XP</b></div>
   </div>
 
+  <div id="message" class="glass">Explore a cidade e procure o marcador 💬</div>
+
+  <div id="interaction" class="interaction glass hidden">
+    <div id="interaction-icon">💬</div>
+    <div><strong id="interaction-title">Pessoa</strong><small id="interaction-desc">Interaja</small></div>
+    <button id="interaction-btn">INTERAGIR</button>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="joystick"><div id="stick"></div></div>
   <div id="actions">
-    <button id="run">🏃</button>
-    <button id="interact">✋</button>
+    <button id="run" aria-label="Correr">🏃</button>
+    <button id="interact" aria-label="Interagir">✋</button>
   </div>
+
+  <div id="hint">Arraste no lado direito para girar a câmera</div>
 
   <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
-    }
-  }
+  {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"}}
   </script>
   <script type="module" src="/static/js/game.js"></script>
 </body>
